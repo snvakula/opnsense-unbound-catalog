@@ -4,6 +4,7 @@ namespace OPNsense\UnboundCatalog\Api;
 
 use OPNsense\Base\ApiMutableServiceControllerBase;
 use OPNsense\Core\Backend;
+use OPNsense\UnboundCatalog\OperationalStatus;
 use OPNsense\UnboundCatalog\UnboundCatalog;
 
 class ServiceController extends ApiMutableServiceControllerBase
@@ -40,6 +41,21 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ['status' => 'ok'];
     }
 
+    public function syncAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed'];
+        }
+
+        if (trim((new Backend())->configdRun('unboundcatalog sync')) !== 'OK') {
+            return [
+                'status' => 'failed',
+                'status_msg' => gettext('Start Catalog Sync before requesting synchronization.'),
+            ];
+        }
+        return ['status' => 'ok'];
+    }
+
     public function overviewAction()
     {
         $result = $this->statusAction();
@@ -60,6 +76,15 @@ class ServiceController extends ApiMutableServiceControllerBase
             }
         }
 
-        return $result;
+        $summary = OperationalStatus::read();
+        if ($result['status'] !== 'running') {
+            $summary['listener'] = [];
+            $summary['next'] = null;
+        }
+        unset($summary['catalog_status']);
+        foreach (['attempted', 'succeeded', 'next'] as $key) {
+            $summary[$key] = OperationalStatus::timestamp($summary[$key] ?? null);
+        }
+        return $result + $summary;
     }
 }

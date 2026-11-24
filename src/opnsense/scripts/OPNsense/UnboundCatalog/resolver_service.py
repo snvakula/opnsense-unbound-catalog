@@ -12,7 +12,8 @@ from pathlib import Path
 
 # The package script directory is owned by root.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from reconcile import ReconcileError, Transaction, pack, plan
+from reconcile import ReconcileError, Transaction, plan
+from status_report import report
 from sync import STATE_LIMIT, Settings, atomic_json, load_json
 from unbound import Unbound
 
@@ -28,8 +29,8 @@ def log(level, message):
     syslog.syslog(getattr(syslog, "LOG_" + {"error": "ERR", "warning": "WARNING", "info": "INFO"}[level]), message)
 
 
-def snapshots():
-    path = STATE / "catalogs/state.json"
+def worker_json(name):
+    path = STATE / "catalogs" / name
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     except FileNotFoundError:
@@ -41,50 +42,89 @@ def snapshots():
         raw = stream.read(STATE_LIMIT + 1)
     if len(raw) > STATE_LIMIT:
         raise ReconcileError("Catalog snapshot exceeds its limit")
-    value = json.loads(raw)
+    return json.loads(raw)
+
+
+def snapshots():
+    value = worker_json("state.json")
+    if not value:
+        return {}
     if value["version"] != 1:
         raise ReconcileError("Unsupported catalog snapshot version")
     return value["catalogs"]
 
 
+def optional_json(path):
+    try:
+        return load_json(path)
+    except FileNotFoundError:
+        return {}
+
+
+def have_listener():
+    listener = worker_json("listener.json")
+    try:
+        pid = int(Path("/var/run/unbound_catalog_worker.pid").read_text())
+        if pid <= 1:
+            return []
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return []
+    if listener.get("pid") == pid and isinstance(listener.get("families"), list):
+        return sorted(set(listener["families"]) & {"AF_INET", "AF_INET6"})
+    return []
+
+
+def update_outcome(path, value):
+    if optional_json(path) != value:
+        atomic_json(path, value)
+
+
 def run(command):
     directory = STATE / "resolver"
-    directory.mkdir(mode=0o750, parents=True, exist_ok=True)
     resolver = Unbound(UNBOUND, PERSISTENT, ACTIVE, TEMPLATE, directory)
+    transaction = Transaction(resolver, directory, log)
+    outcome = directory / "outcome.json"
+    if command in ("summary", "zones"):
+        result = optional_json(outcome)
+        result["pending"] = transaction.journal.exists()
+        return report(Settings.read(SETTINGS), snapshots(), transaction.current(),
+                      result, resolver, have_listener(), include_zones=command == "zones")
+
+    directory.mkdir(mode=0o750, parents=True, exist_ok=True)
     with (directory / "lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        transaction = Transaction(resolver, directory, log)
-        transaction.recover()
-        old = transaction.current()
-        desired, conflicts = {}, {}
-        if command == "remove" and not old:
-            return
-        if command == "reconcile":
-            settings = Settings.read(SETTINGS)
-            desired, conflicts = plan(settings.catalogs, snapshots(), old)
-        if not conflicts:
-            conflicts = transaction.apply(desired, cleanup=command == "remove")
-        outcome = directory / "outcome.json"
-        report = {"desired": pack(desired), "conflicts": conflicts, "error": None}
+        conflicts = {}
         try:
-            previous = load_json(outcome)
-        except FileNotFoundError:
-            previous = None
-        if previous != report:
-            atomic_json(outcome, report)
-        if conflicts:
-            log("warning", "; ".join(f"{zone} {message}" for zone, message in conflicts.items())[:500])
-            if command == "remove":
-                raise ReconcileError("Unbound has catalog ownership conflicts")
+            transaction.recover()
+            old = transaction.current()
+            if command == "remove" and not old:
+                return
+            desired = {}
+            if command == "reconcile":
+                settings = Settings.read(SETTINGS)
+                desired, conflicts = plan(settings.catalogs, snapshots(), old)
+            if not conflicts:
+                conflicts = transaction.apply(desired, cleanup=command == "remove")
+            if conflicts:
+                log("warning", "; ".join(f"{zone} {message}" for zone, message in conflicts.items())[:500])
+                if command == "remove":
+                    raise ReconcileError("Unbound has catalog ownership conflicts")
+        except (OSError, ReconcileError, ValueError, TypeError, KeyError) as error:
+            update_outcome(outcome, {"conflicts": conflicts, "error": str(error)[:500]})
+            raise
+        update_outcome(outcome, {"conflicts": conflicts, "error": None})
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("reconcile", "remove"))
+    parser.add_argument("command", choices=("reconcile", "remove", "summary", "zones"))
     args = parser.parse_args()
     syslog.openlog("unboundcatalog", syslog.LOG_PID, syslog.LOG_DAEMON)
     try:
-        run(args.command)
+        result = run(args.command)
+        if result is not None:
+            print(json.dumps(result))
     except BlockingIOError:
         return 0
     except (OSError, ReconcileError, ValueError, TypeError, KeyError) as error:

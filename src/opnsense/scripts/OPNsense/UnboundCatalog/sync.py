@@ -82,6 +82,13 @@ class Catalog:
     insecure: bool
     sources: tuple = ()
 
+    @property
+    def stub_addresses(self):
+        return tuple(sorted({
+            address if self.authoritative_port == 53 else f"{address}@{self.authoritative_port}"
+            for address in self.authorities
+        }))
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -177,6 +184,11 @@ class Poller:
                 if not self.failures[name]:
                     self.due[name] = min(self.due[name], requested)
             self.requests.clear()
+
+    def synchronize(self):
+        with self.request_lock:
+            self.requests.clear()
+            self.due = dict.fromkeys(self.settings.catalogs, self.clock())
 
     def next_delay(self):
         return max(0, min(self.due.values(), default=self.clock() + 60) - self.clock())

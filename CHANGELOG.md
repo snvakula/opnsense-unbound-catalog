@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- Added live resolver, membership, listener, and synchronization status to the native GUI.
+- Added immediate synchronization through the existing worker and native service controls.
+- Reconcile saved configuration at startup before attempting the next transfers.
+
 ## 0.4.0
 
 - Generate and validate plugin-owned Unbound Stub Zone configuration.
