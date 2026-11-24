@@ -35,8 +35,13 @@ start_precmd="unbound_catalog_prepare"
 
 unbound_catalog_prepare()
 {
-    /usr/bin/install -d -m 0755 /var/db/unboundcatalog &&
-        /usr/bin/install -d -o nobody -m 0750 /var/db/unboundcatalog/catalogs
+    # configd creates files owned by root:wheel with the target directory mode.
+    # Grant the worker read access while retaining root ownership and write access.
+    /usr/bin/install -d -o root -g nobody -m 0750 /var/run/unboundcatalog &&
+        /usr/bin/chgrp nobody /var/run/unboundcatalog/settings.json &&
+        /bin/chmod 0640 /var/run/unboundcatalog/settings.json &&
+        /usr/bin/install -d -m 0755 /var/db/unboundcatalog &&
+        /usr/bin/install -d -o nobody -g nobody -m 0750 /var/db/unboundcatalog/catalogs
 }
 
 run_rc_command "$1"
