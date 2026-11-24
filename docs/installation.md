@@ -1,91 +1,90 @@
 # Installation and operation
 
-## Build and install on a lab firewall
+## Install
 
-Use an OPNsense 26.7 amd64 installation or a FreeBSD 15.1 amd64 build guest
-with `git`, `pkg` and `python313`. On an OPNsense firewall, use its native
-package repository for missing dependencies. The repository's CI creates a
-package and a SHA-256 checksum as workflow artifacts when the package job
-succeeds.
+Use OPNsense 26.7 amd64, which is based on FreeBSD 15.1. Native checks use
+OPNsense 26.7 Nano and its bundled Unbound 1.25.1. The package requires the
+target OPNsense repository's `python313`, `py313-dnspython`, and `py313-Jinja2`.
+The package and SHA-256 checksum are available as CI artifacts and as
+versioned assets when the release workflow runs.
 
-Build with the OPNsense 26.7.9 plugin framework. Run these commands from a
-checkout of this project on the build machine.
-
-```sh
-build=$(mktemp -d)
-git clone --depth 1 --branch 26.7.9 https://github.com/opnsense/plugins.git "$build/plugins"
-plugin="$build/plugins/dns/unbound-catalog"
-mkdir -p "$plugin" dist
-cp -R Makefile pkg-descr src +PRE_DEINSTALL.pre +POST_DEINSTALL.post "$plugin/"
-chmod -R a+rX "$plugin/src"
-make -C "$plugin" PLUGIN_ABI=26.7 PLUGIN_PHP=85 package
-cp "$plugin"/work/pkg/os-unbound-catalog-*.pkg dist/
-rm -rf "$build"
-```
-
-Copy the package to the lab firewall and run as root.
+Verify the download on the firewall and install it from a root shell.
 
 ```sh
-pkg add ./os-unbound-catalog-0.1.0.pkg
+package=os-unbound-catalog-1.0.0.pkg
+test "$(sha256 -q "$package")" = "$(awk 'NR == 1 { print $1 }' "$package.sha256")"
+pkg install -y python313 py313-dnspython py313-Jinja2
+pkg add ./os-unbound-catalog-1.0.0.pkg
 configctl unboundcatalog status
 ```
 
-The package installs through `pkg`. A fresh installation leaves the worker
-stopped and the configured global enable switch off.
+Fresh installation leaves the worker stopped. Open **Services → Unbound DNS →
+Catalog Sync**, add a catalog, enable the service in **Settings**, then select
+**Save** and **Apply**. To delegate access, assign the **Services: Unbound DNS:
+Catalog Sync** privilege to an OPNsense group. See the [configuration guide](configuration.md).
 
-## Configure and inspect
+## Upgrade and restore
 
-1. Go to **Services → Unbound DNS → Catalog Sync → Catalogs** and add an enabled
-   catalog. Use `catalog.example.net.` for the name, `192.0.2.10` for the
-   transfer server, and `2001:db8::10` for the authoritative server in a lab
-   configuration. Add each address as a separate token.
-2. Open **Settings**, enable Catalog Sync, select **Save**, then **Apply**.
-   Apply uses saved settings. With no enabled catalogs or a disabled global
-   switch, Apply stops the worker.
-3. Use the standard service widgets or `configctl unboundcatalog start`,
-   `stop`, `restart`, or `status` from the shell. **Overview** shows the
-   native state and worker uptime. The **Log File** tab shows lifecycle
-   messages at Informational severity with the default log setting.
-4. To grant access to an OPNsense group, assign the
-   **Services: Unbound DNS: Catalog Sync** privilege.
+1. Download a configuration backup from **System → Configuration → Backups**.
+   For an offline recovery copy, save `/var/db/unboundcatalog` separately
+   while the worker is stopped.
+2. Verify the new package checksum. Update an existing local installation with
+   `pkg add -f ./os-unbound-catalog-1.0.0.pkg`.
+3. Confirm the saved catalogs and their applied zone status in the GUI. Check
+   that Unbound remains operational and that the worker is running if enabled.
 
-Delete catalogs through the grid confirmation. Disable a catalog through its
-editor and apply the saved change. Version 0.1.0 manages no zones. The Zones
-grid stays empty and **Synchronize now** is unavailable. DNS-related settings
-are saved for future releases. There are no AXFR or NOTIFY firewall openings
-needed for 0.1.0.
+The package refreshes native templates and starts the worker when enabled.
+Upgrading from 0.4.0 or later requires a build that recognizes FreeBSD's
+`PKG_UPGRADE` package hook environment. If upgrading an early prerelease
+snapshot without the upgrade guard, use a maintenance window and verify
+that reconciliation has restored the stubs.
 
-If the service fails to start, verify the enable switch and that an enabled
-catalog has a name and both address lists. Check
-`/etc/rc.conf.d/unbound_catalog` and the native configd log. For missing log
-entries, verify the severity selection and that the service started after
-installation completed.
+The native configuration backup contains the versioned MVC settings.
+Restore it from **System → Configuration → Backups**. Apply the restored
+settings or reboot if the restore workflow calls for it. When moving to a
+new firewall, install the plugin, allow the new source IP in the catalog
+producer's AXFR ACL, and apply the restored settings. The worker rebuilds
+operational state from the next valid transfer. The standard configuration
+backup excludes operational snapshots, applied state, and transaction files.
 
-## Upgrade and removal
+Use persistent storage for `/var/db/unboundcatalog`. If the firewall uses a
+memory filesystem for `/var`, ensure this directory is backed by persistent
+storage before depending on outage recovery across reboots.
 
-Save an OPNsense configuration backup before changing the package. A future
-upgrade must preserve the versioned MVC model. Review and apply saved settings
-after a lab upgrade. This foundation creates no persistent operational
-database or Unbound include.
+## Remove
+
+Keep Unbound available during normal removal. The uninstall hook removes
+owned runtime stubs and DNSSEC exceptions, then deletes the owned include
+from the persistent and live directories. Verify normal queries after removal.
 
 ```sh
 pkg delete os-unbound-catalog
+test ! -e /usr/local/etc/unbound.opnsense.d/catalog.conf
+test ! -e /var/unbound/etc/catalog.conf
+unbound-control -c /var/unbound/unbound.conf status
 ```
 
-Removal stops the worker and removes the generated rc settings, the runtime
-lock, and package-owned registrations. The OPNsense configuration retains
-saved Catalog Sync settings for backup or reinstallation. Native logs remain
-subject to the appliance's log retention policy.
+An ownership conflict is reported to the native log. Resolve it before
+uninstallation. From a root shell, you can run the same cleanup before
+removing the package.
 
-To discard retained settings after removal, run the following as root on the
-firewall. The native configuration API records the cleanup in configuration
-history. Earlier backups remain subject to the firewall's retention settings.
+```sh
+configctl unboundcatalog stop
+/usr/local/bin/python3.13 -I \
+  /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/resolver_service.py remove
+```
+
+The MVC settings and catalog snapshots are retained for reinstall or
+investigation. To fully remove them, first archive any data you want to keep.
+After the package and its generated include are removed, remove
+`/var/db/unboundcatalog` and clear the settings using the native configuration
+API. Historical backups and native logs follow the firewall's retention
+settings.
 
 ```sh
 /usr/local/bin/php <<'PHP'
 <?php
 require '/usr/local/opnsense/mvc/script/load_phalcon.php';
-
 $config = OPNsense\Core\Config::getInstance()->lock();
 $root = $config->object();
 if (isset($root->OPNsense->UnboundCatalog)) {
@@ -95,48 +94,4 @@ if (isset($root->OPNsense->UnboundCatalog)) {
 PHP
 ```
 
-## Native acceptance
-
-Record the appliance version and results. These checks supplement Linux
-linting and the FreeBSD package build.
-
-1. Save a configuration backup and record the Unbound status. Install the
-   package. Verify the menu, all five tabs, the stopped service, and the
-   continued availability of Unbound.
-2. Test valid IPv4, IPv6 and mixed address lists. Submit invalid IPs, CIDRs in
-   server fields, a port outside its allowed range, equivalent duplicate
-   catalog names, and enabled NOTIFY with both families disabled. Verify that
-   changes are rejected server-side.
-3. Verify the GUI under a user with the plugin privilege, then confirm access is
-   denied under a user without it. Exercise the API under the same users.
-4. Save and apply enabled settings. Verify one worker running as `nobody`.
-   Use Start, Stop, Restart and Apply. Confirm worker uptime changes and check
-   the native log entries. Verify no listening sockets belong to the worker.
-5. Reboot the enabled lab instance and confirm the worker starts once. Test
-   disabling or deleting the last catalog and applying the change. Test
-   restoring the settings backup through the native configuration workflow.
-6. Install a subsequent lab build and verify settings persistence. Remove the
-   package. Verify the worker and generated rc file are gone, the menu and
-   configd action disappear, Unbound continues serving, and plugin settings
-   remain in the configuration backup.
-
-The acceptance suite for later versions must cover real catalog producers,
-Unbound reconciliation and the required delegation checks with a separate
-authoritative child server.
-
-## Verified lab coverage
-
-The package was built and installed on an isolated OPNsense 26.7 Nano guest
-running FreeBSD 15.1-RELEASE-p1 amd64 and Unbound 1.25.1. The lab exercised the
-five GUI tabs, catalog creation, editing and confirmed deletion, mixed IPv4
-and IPv6 settings, server-side validation, Apply, service controls, worker
-uptime, native logging and delegated access. A same-version package reinstall
-preserved the saved MVC configuration. Reboot started one worker running as
-`nobody`. Package removal stopped the worker, cleared the generated files
-and configd action, and retained the MVC settings. The Unbound PID,
-configuration checksum and localhost DNS answer passed the removal checks.
-The native API cleanup procedure also passed.
-
-Cross-version upgrades and the full configuration backup and restore workflow
-remain native acceptance work. The mandatory resolver delegation regression
-belongs to the Unbound reconciliation milestone.
+- [Native acceptance](release.md#native-acceptance)

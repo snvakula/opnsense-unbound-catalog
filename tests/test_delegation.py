@@ -1,30 +1,39 @@
 """Run the delegation acceptance test with BIND and Unbound on a private loopback lab."""
 
+import ipaddress
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from threading import Thread
 
 import dns.flags
 import dns.message
+import dns.opcode
 import dns.query
 import dns.rcode
 import dns.rdatatype
+import dns.rrset
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src/opnsense/scripts/OPNsense/UnboundCatalog"))
-from reconcile import Transaction, plan
-from sync import Catalog, Poller, Settings
+from catalog import CatalogError, transfer
+from notify import Listener
+from reconcile import Transaction, pack, plan
+from sync import Catalog, Poller, Settings, atomic_json
 from unbound import Unbound
 
-PARENT = "catalog-lab.net."
+PARENT = "catalog-lab.example.net."
 CHILD = "child." + PARENT
 CATALOG = "members." + PARENT
+SECOND = "other-members." + PARENT
 CHILD_ADDRESS = "127.0.0.1"
 TTL = "$TTL 60\n"
 SOA = "ns.{zone} hostmaster.{zone} {serial} 60 60 600 60"
@@ -45,11 +54,11 @@ def port():
         return sock.getsockname()[1]
 
 
-def query(name, kind, host, server_port, recursive=True):
+def query(name, kind, host, server_port, recursive=True, timeout=2):
     packet = dns.message.make_query(name, kind)
     if not recursive:
         packet.flags &= ~dns.flags.RD
-    return dns.query.udp(packet, host, port=server_port, timeout=2)
+    return dns.query.udp(packet, host, port=server_port, timeout=timeout)
 
 
 def wait_until(check, folder, timeout=12):
@@ -65,8 +74,8 @@ def wait_until(check, folder, timeout=12):
     raise RuntimeError(f"DNS fixture did not converge\n{logs}")
 
 
-def catalog_zone(serial, version=2, member=PARENT):
-    records = f'@ SOA {SOA.format(zone=CATALOG, serial=serial)}\n@ NS ns.{PARENT}\nversion TXT "{version}"\n'
+def catalog_zone(serial, version=2, member=PARENT, zone=CATALOG):
+    records = f'@ SOA {SOA.format(zone=zone, serial=serial)}\n@ NS ns.{PARENT}\nversion TXT "{version}"\n'
     return TTL + records + (f"m.zones PTR {member}\n" if member else "")
 
 
@@ -83,6 +92,7 @@ ns.child A {child_address}
                                 for (label, kind), value in ANSWERS.items())
         + f"\nns A {child_address}\nmail A 192.0.2.43\n",
         CATALOG: catalog_zone(4294967295),
+        SECOND: catalog_zone(7, zone=SECOND),
     }
     for zone, content in zones.items():
         (folder / (zone + "zone")).write_text(content)
@@ -150,6 +160,37 @@ class DelegationTest(unittest.TestCase):
             process.terminate()
             process.communicate(timeout=10)
 
+    def test_incomplete_axfr_over_tcp(self):
+        answers = []
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            server.settimeout(3)
+
+            def close_after_soa():
+                connection, _ = server.accept()
+                with connection, connection.makefile("rb") as stream:
+                    connection.settimeout(3)
+                    length, = struct.unpack("!H", stream.read(2))
+                    request = dns.message.from_wire(stream.read(length))
+                    reply = dns.message.make_response(request)
+                    reply.flags |= dns.flags.AA
+                    reply.answer.append(dns.rrset.from_text(
+                        CATALOG, 60, "IN", "SOA", SOA.format(zone=CATALOG, serial=1),
+                    ))
+                    payload = reply.to_wire()
+                    connection.sendall(struct.pack("!H", len(payload)) + payload)
+                    answers.append(payload)
+
+            producer = Thread(target=close_after_soa)
+            producer.start()
+            try:
+                with self.assertRaisesRegex(CatalogError, "Transfer ended before the closing SOA"):
+                    transfer(CATALOG, "127.0.0.1", server.getsockname()[1], 3, 100, 1024)
+            finally:
+                producer.join(4)
+            self.assertEqual(len(answers), 1)
+
     def test_transfer_stub_and_delegation(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -160,7 +201,7 @@ class DelegationTest(unittest.TestCase):
             child = self.process(folder, "named", "-g", "-n", "1", "-c",
                                  bind_config(folder, [CHILD], CHILD_ADDRESS, 53))
             parent = self.process(folder, "named", "-g", "-n", "1", "-c",
-                                  bind_config(folder, [PARENT, CATALOG], "127.0.0.1", parent_port, "::1"))
+                                  bind_config(folder, [PARENT, CATALOG, SECOND], "127.0.0.1", parent_port, "::1"))
             wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer, folder)
             wait_until(lambda: query(CHILD, "SOA", CHILD_ADDRESS, 53).answer, folder)
             referral = query(CHILD, "A", "127.0.0.1", parent_port, recursive=False)
@@ -179,7 +220,6 @@ server:
     do-not-query-localhost: no
     use-syslog: no
     module-config: "validator iterator"
-    qname-minimisation: no
 remote-control:
     control-enable: yes
     control-interface: "{control_socket}"
@@ -193,23 +233,44 @@ include-toplevel: "{folder}/active/*.conf"
             now = 1
             def log(*_):
                 pass
-            catalog = Catalog(CATALOG, ("::1", "127.0.0.1"), parent_port,
-                              ("127.0.0.1", "::1"), parent_port, True)
-            poller = Poller(Settings({CATALOG: catalog}, interval=1, retry_initial=1, timeout=1),
-                            folder / "state.json", log, clock=lambda: now)
+            authorities = ("127.0.0.1", "::1")
+            sources = (ipaddress.ip_network("127.0.0.1"), ipaddress.ip_network("::1"))
+            catalogs = {
+                CATALOG: Catalog(CATALOG, ("::1",), parent_port, authorities, parent_port, True, sources),
+                SECOND: Catalog(SECOND, ("127.0.0.1",), parent_port, authorities, parent_port, True, sources),
+            }
+            settings = Settings(catalogs, interval=10, retry_initial=1, timeout=1, notify_port=port())
+            poller = Poller(settings, folder / "state.json", log, clock=lambda: now)
             transaction = Transaction(resolver, folder, log)
+
+            def apply():
+                desired, conflicts = plan(poller.settings.catalogs, poller.state, transaction.current())
+                self.assertEqual(conflicts, {})
+                return transaction.apply(desired)
 
             def reconcile():
                 self.assertTrue(poller.run_due())
-                desired, conflicts = plan(poller.settings.catalogs, poller.state, transaction.current())
-                self.assertEqual(conflicts, {})
-                self.assertEqual(transaction.apply(desired), {})
+                self.assertEqual(apply(), {})
 
-            reconcile()
+            self.assertTrue(poller.run_due())
+            resolver.modify("forward_add", PARENT, "192.0.2.1")
+            self.assertIn(PARENT, apply())
+            self.assertFalse(resolver.persistent.exists())
+            resolver.modify("forward_remove", PARENT)
+            self.assertEqual(apply(), {})
             self.assertEqual(poller.state[CATALOG]["serial"], 4294967295)
-            self.assertEqual(set(transaction.current()), {PARENT})
+            self.assertEqual(set(transaction.current()[PARENT].owners), {CATALOG, SECOND})
             self.assertIn(PARENT, resolver.runtime()[1])
             assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
+
+            for address in ("::1", "127.0.0.1"):
+                family_catalogs = {name: replace(row, authorities=(address,)) for name, row in catalogs.items()}
+                poller.settings = replace(settings, catalogs=family_catalogs)
+                self.assertEqual(apply(), {})
+                self.assertEqual(resolver.runtime()[0][PARENT], ((address,), True))
+                assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
+            poller.settings = settings
+            self.assertEqual(apply(), {})
 
             # A resolver restart must reproduce both effective files and runtime state.
             self.stop(unbound)
@@ -219,8 +280,47 @@ include-toplevel: "{folder}/active/*.conf"
             self.assertTrue(resolver.matches(transaction.current(), transaction.current()))
             assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
 
+            # Restore a live stub after interrupting an uncommitted removal.
+            atomic_json(transaction.journal, {"previous": pack(transaction.current()), "desired": {}})
+            resolver.modify("stub_remove", PARENT)
+            self.assertNotIn(PARENT, resolver.runtime()[0])
+            transaction.recover()
+            self.assertIn(PARENT, resolver.runtime()[0])
+
+            # Packet reception and the transfer schedule are independent.
+            def notify(name, address):
+                packet = dns.message.make_query(name, "SOA")
+                packet.set_opcode(dns.opcode.NOTIFY)
+                packet.flags = (packet.flags & ~dns.flags.RD) | dns.flags.AA
+                return dns.query.udp(packet, address, port=settings.notify_port, timeout=2)
+
+            with Listener(poller) as listener:
+                self.assertEqual(listener.active_families(), ["AF_INET", "AF_INET6"])
+                self.assertEqual(notify(PARENT, "127.0.0.1").rcode(), dns.rcode.NOERROR)
+                self.assertFalse(poller.requests)
+                for address in ("127.0.0.1", "::1", "::1"):
+                    self.assertEqual(notify(CATALOG, address).rcode(), dns.rcode.NOERROR)
+                self.assertEqual(len(poller.requests), 1)
+                now += settings.debounce
+                reconcile()
+                self.assertFalse(poller.run_due())
+
+            self.stop(child)
+            try:
+                failed = query("outage." + CHILD, "A", "127.0.0.1", resolver_port)
+            except dns.exception.Timeout:
+                pass
+            else:
+                self.assertEqual(failed.rcode(), dns.rcode.SERVFAIL)
+                self.assertEqual(failed.answer, [])
+            self.assertIn(PARENT, transaction.current())
+            child = self.process(folder, "named", "-g", "-n", "1", "-c", folder / "named-53.conf")
+            wait_until(lambda: query(CHILD, "SOA", CHILD_ADDRESS, 53).answer, folder)
+            resolver.control("flush_zone", PARENT)
+            assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
+
             self.stop(parent)
-            now += 1
+            now += settings.interval
             reconcile()
             self.assertIn(PARENT, transaction.current())
             self.assertTrue(poller.state[CATALOG]["error"])
@@ -236,9 +336,10 @@ include-toplevel: "{folder}/active/*.conf"
 
             self.stop(parent)
             (folder / (CATALOG + "zone")).write_text(catalog_zone(0, member=None))
+            (folder / (SECOND + "zone")).write_text(catalog_zone(8, member=None, zone=SECOND))
             parent = self.process(folder, "named", "-g", "-n", "1", "-c", bind)
             wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer, folder)
-            now += 2
+            now += settings.interval
             reconcile()
             self.assertEqual(poller.state[CATALOG]["serial"], 0)
             self.assertEqual(transaction.current(), {})

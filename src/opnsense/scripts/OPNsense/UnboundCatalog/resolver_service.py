@@ -93,7 +93,9 @@ def run(command):
 
     directory.mkdir(mode=0o750, parents=True, exist_ok=True)
     with (directory / "lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Uninstall must finish after any configd request the stopped worker left in flight.
+        flags = fcntl.LOCK_EX if command == "remove" else fcntl.LOCK_EX | fcntl.LOCK_NB
+        fcntl.flock(lock, flags)
         conflicts = {}
         try:
             transaction.recover()

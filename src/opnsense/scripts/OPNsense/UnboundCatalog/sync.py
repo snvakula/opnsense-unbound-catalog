@@ -15,6 +15,7 @@ from dns.exception import DNSException
 STATE_LIMIT = 32 * 1024 * 1024
 MAX_CATALOGS = 64
 MAX_SERVERS = 16
+MAX_NOTIFY_SOURCES = 64
 
 
 def load_json(path, limit=STATE_LIMIT):
@@ -119,6 +120,12 @@ class Settings:
                 name = dns_name(row["name"]).to_text()
                 if name in catalogs:
                     raise ValueError("Duplicate catalog")
+                sources = tuple(dict.fromkeys(
+                    ipaddress.ip_network(value.strip(), strict=False)
+                    for value in (row.get("notify_sources") or "").split(",") if value.strip()
+                ))
+                if len(sources) > MAX_NOTIFY_SOURCES or any("%" in str(source) for source in sources):
+                    raise ValueError("Too many NOTIFY sources or unsupported IPv6 scope")
                 catalogs[name] = Catalog(
                     name,
                     addresses(row["transfer_servers"]),
@@ -126,8 +133,7 @@ class Settings:
                     addresses(row["authoritative_servers"]),
                     bounded_int(row.get("authoritative_port"), 53, 1, 65535),
                     flag(row.get("disable_dnssec")),
-                    tuple(ipaddress.ip_network(value.strip(), strict=False)
-                          for value in (row.get("notify_sources") or "").split(",") if value.strip()),
+                    sources,
                 )
         initial = bounded_int(general.get("retry_initial"), 5, 1, 300)
         return cls(
