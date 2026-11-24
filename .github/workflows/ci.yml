@@ -48,11 +48,29 @@ jobs:
         with:
           release: '15.1'
           arch: x86_64
-          prepare: pkg install -y git python313 py313-dnspython
+          prepare: pkg install -y git
           run: |
             set -eu
             build_dir=$(mktemp -d)
             trap 'rm -rf "$build_dir"' EXIT
+            # FreeBSD ports can use a different default Python flavor.
+            # Resolve build dependencies from the signed target OPNsense repository.
+            repos="$build_dir/repos"
+            fingerprints="$build_dir/fingerprints"
+            mkdir -p "$repos" "$fingerprints/trusted" "$fingerprints/revoked"
+            core=228ab68d54513046f79bc36d7f583936922d1951
+            signer=pkg.opnsense.org.20260608
+            fetch -qo "$fingerprints/trusted/$signer" \
+              "https://raw.githubusercontent.com/opnsense/core/$core/src/etc/pkg/fingerprints/OPNsense/trusted/$signer"
+            cat > "$repos/OPNsense.conf" <<EOF
+            OPNsense: {
+              url: "https://pkg.opnsense.org/FreeBSD:15:amd64/26.7/latest",
+              signature_type: "fingerprints",
+              fingerprints: "$fingerprints",
+              enabled: yes
+            }
+            EOF
+            pkg -o REPOS_DIR="$repos" install -y -r OPNsense python313 py313-dnspython
             git clone --depth 1 --branch 26.7.9 https://github.com/opnsense/plugins.git "$build_dir/plugins"
             plugin="$build_dir/plugins/dns/unbound-catalog"
             mkdir -p "$plugin" dist
