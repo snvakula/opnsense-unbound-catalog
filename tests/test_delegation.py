@@ -52,7 +52,7 @@ def query(name, kind, host, server_port, recursive=True):
     return dns.query.udp(packet, host, port=server_port, timeout=2)
 
 
-def wait_until(check, timeout=12):
+def wait_until(check, folder, timeout=12):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -61,7 +61,8 @@ def wait_until(check, timeout=12):
         except (OSError, dns.exception.Timeout):
             pass
         time.sleep(0.1)
-    raise RuntimeError("DNS fixture did not converge")
+    logs = "\n".join(path.read_text()[-3000:] for path in folder.glob("*.log"))
+    raise RuntimeError(f"DNS fixture did not converge\n{logs}")
 
 
 def catalog_zone(serial, version=2, member=PARENT):
@@ -160,8 +161,8 @@ class DelegationTest(unittest.TestCase):
                                  bind_config(folder, [CHILD], CHILD_ADDRESS, 53))
             parent = self.process(folder, "named", "-g", "-n", "1", "-c",
                                   bind_config(folder, [PARENT, CATALOG], "127.0.0.1", parent_port, "::1"))
-            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer)
-            wait_until(lambda: query(CHILD, "SOA", CHILD_ADDRESS, 53).answer)
+            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer, folder)
+            wait_until(lambda: query(CHILD, "SOA", CHILD_ADDRESS, 53).answer, folder)
             referral = query(CHILD, "A", "127.0.0.1", parent_port, recursive=False)
             self.assertEqual(referral.answer, [])
             self.assertEqual([(r.name.to_text(), r.rdtype) for r in referral.authority], [(CHILD, dns.rdatatype.NS)])
@@ -188,7 +189,7 @@ include-toplevel: "{folder}/active/*.conf"
             resolver = Unbound(configuration, folder / "persistent/catalog.conf", folder / "active/catalog.conf",
                                template, folder, shutil.which("unbound-control"), shutil.which("unbound-checkconf"))
             unbound = self.process(folder, "unbound", "-d", "-c", configuration)
-            wait_until(control_socket.exists)
+            wait_until(control_socket.exists, folder)
             now = 1
             def log(*_):
                 pass
@@ -214,7 +215,7 @@ include-toplevel: "{folder}/active/*.conf"
             self.stop(unbound)
             control_socket.unlink(missing_ok=True)
             unbound = self.process(folder, "unbound", "-d", "-c", configuration)
-            wait_until(control_socket.exists)
+            wait_until(control_socket.exists, folder)
             self.assertTrue(resolver.matches(transaction.current(), transaction.current()))
             assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
 
@@ -227,7 +228,7 @@ include-toplevel: "{folder}/active/*.conf"
             (folder / (CATALOG + "zone")).write_text(catalog_zone(0, version=1))
             bind = folder / f"named-{parent_port}.conf"
             parent = self.process(folder, "named", "-g", "-n", "1", "-c", bind)
-            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer)
+            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer, folder)
             now += 1
             reconcile()
             self.assertIn(PARENT, transaction.current())
@@ -236,7 +237,7 @@ include-toplevel: "{folder}/active/*.conf"
             self.stop(parent)
             (folder / (CATALOG + "zone")).write_text(catalog_zone(0, member=None))
             parent = self.process(folder, "named", "-g", "-n", "1", "-c", bind)
-            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer)
+            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", parent_port).answer, folder)
             now += 2
             reconcile()
             self.assertEqual(poller.state[CATALOG]["serial"], 0)
