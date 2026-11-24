@@ -6,7 +6,9 @@ addresses, configuration backups, and packet captures out of public reports.
 
 Use authenticated management access to OPNsense and restrict the native
 Catalog Sync privilege to the appropriate administrators. The package uses
-only fixed, local configd actions. Protocol processing runs as `nobody`.
+only fixed, local configd actions. Native ACL checks also govern per-zone
+exclusions, which are stored in the appliance configuration. Protocol
+processing runs as `nobody`.
 A root-owned configd helper validates catalog-derived names and applies
 changes using root-owned settings and fixed Unbound command arguments.
 

@@ -5,31 +5,54 @@
 Use OPNsense 26.7 amd64, which is based on FreeBSD 15.1. Native checks use
 OPNsense 26.7 Nano and its bundled Unbound 1.25.1. The package requires the
 target OPNsense repository's `python313`, `py313-dnspython`, and `py313-Jinja2`.
-The package and SHA-256 checksum are available as CI artifacts and as
-versioned assets when the release workflow runs.
+Download the package and its SHA-256 checksum from GitHub Releases if the
+version is published. For a pre-release build, download
+`os-unbound-catalog-FreeBSD-15-amd64` from the **Artifacts** section of the
+successful GitHub Actions run for that version, then extract the two files.
+[Releases](https://github.com/snvakula/opnsense-unbound-catalog/releases) ·
+[Actions](https://github.com/snvakula/opnsense-unbound-catalog/actions)
 
-Verify the download on the firewall and install it from a root shell.
+Copy both files to the firewall. Replace `FIREWALL` with its management
+address or SSH hostname.
 
 ```sh
-package=os-unbound-catalog-1.1.0.pkg
-test "$(sha256 -q "$package")" = "$(awk 'NR == 1 { print $1 }' "$package.sha256")"
-pkg install -y python313 py313-dnspython py313-Jinja2
-pkg add ./os-unbound-catalog-1.1.0.pkg
-configctl unboundcatalog status
+scp os-unbound-catalog-1.1.0.pkg os-unbound-catalog-1.1.0.pkg.sha256 root@FIREWALL:/tmp/
 ```
 
-Fresh installation leaves the worker stopped. Open **Services → Unbound DNS →
-Catalog Sync**, add a catalog, enable the service in **Settings**, then select
-**Save** and **Apply**. To delegate access, assign the **Services: Unbound DNS:
-Catalog Sync** privilege to an OPNsense group. See the [configuration guide](configuration.md).
+Run the following from a root shell on the firewall. The chain stops if the
+checksum verification, dependency installation, or package installation fails.
+
+```sh
+cd /tmp
+package=os-unbound-catalog-1.1.0.pkg
+test "$(sha256 -q "$package")" = "$(awk 'NR == 1 { print $1 }' "$package.sha256")" &&
+  pkg install -y python313 py313-dnspython py313-Jinja2 &&
+  pkg add "./$package" &&
+  /usr/local/opnsense/scripts/firmware/register.php install os-unbound-catalog
+```
+
+The final command registers a locally installed plugin under **System →
+Firmware → Plugins**. For an already-installed package marked
+`misconfigured`, run the registration command on its own and refresh the
+page. A local package absent from the connected repositories may appear
+as `orphaned` with `unknown-repository`. Use the local upgrade procedure
+below for later versions.
+
+Fresh installation leaves the service disabled. Open **Services → Unbound
+DNS → Catalog Sync → Settings**, enable **Enable Catalog Sync**, then select
+**Save** and **Apply**. The service can start with zero catalogs. Add
+your catalog in **Catalogs** and apply the configuration to begin AXFR.
+To delegate access, assign the **Services: Unbound DNS: Catalog Sync**
+privilege to an OPNsense group. [Configuration guide](configuration.md)
 
 ## Upgrade and restore
 
 1. Download a configuration backup from **System → Configuration → Backups**.
    For an offline recovery copy, save `/var/db/unboundcatalog` separately
    while the worker is stopped.
-2. Verify the new package checksum. Update an existing local installation with
-   `pkg add -f ./os-unbound-catalog-1.1.0.pkg`.
+2. Repeat the checksum, dependencies, and registration steps in the installation
+   procedure. Use `pkg add -f "./$package"` in place of `pkg add "./$package"`
+   to upgrade the existing installation.
 3. Confirm the saved catalogs and their applied zone status in the GUI. Check
    that Unbound remains operational and that the worker is running if enabled.
 
@@ -58,7 +81,8 @@ owned runtime stubs and DNSSEC exceptions, then deletes the owned include
 from the persistent and live directories. Verify normal queries after removal.
 
 ```sh
-pkg delete os-unbound-catalog
+pkg delete os-unbound-catalog &&
+  /usr/local/opnsense/scripts/firmware/register.php remove os-unbound-catalog
 test ! -e /usr/local/etc/unbound.opnsense.d/catalog.conf
 test ! -e /var/unbound/etc/catalog.conf
 unbound-control -c /var/unbound/unbound.conf status

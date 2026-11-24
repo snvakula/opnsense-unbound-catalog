@@ -56,7 +56,9 @@ If glue is private, allow the fixture namespace through
 
 1. Install the package and verify the five GUI tabs, enabled-state checks,
    configuration limits, scoped ACL, and native logs. Confirm that a fresh
-   installation keeps Catalog Sync stopped.
+   installation keeps Catalog Sync stopped. Register the locally installed
+   package and verify it appears in Firmware. Enable the service with no
+   catalogs and confirm that the service runs.
 2. Configure the catalog, enable and apply, and verify the live stub and
    both persisted includes. Confirm final recursive DNS responses, including
    the SOA on negative responses. Run `configctl unbound check`.
@@ -76,3 +78,13 @@ If glue is private, allow the fixture namespace through
 7. Remove the package and check the removal of its worker, actions, runtime
    stubs, DNSSEC exceptions, and generated includes. Verify that unrelated
    DNS, persistent administrator settings, and native logging remain usable.
+8. Verify that an administrator forward can conflict with one catalog zone
+   while an unrelated zone becomes Active. Use the Zones actions to disable
+   and enable the healthy zone, and confirm the changes after Apply.
+9. Disable a catalog with active and conflicting zones, and verify both are
+   withdrawn. Re-enable it with the producer unavailable and confirm
+   that a new transfer is required. Delete the last catalog and verify
+   that the service remains running with an empty Zones grid.
+10. Restart with a legacy conflict record and a snapshot belonging to a
+    removed catalog. Confirm that startup clears both records and leaves
+    the administrator forward in Unbound.
