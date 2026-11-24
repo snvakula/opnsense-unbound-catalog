@@ -1,0 +1,7 @@
+<menu>
+    <Services>
+        <Unbound>
+            <CatalogSync VisibleName="Catalog Sync" order="80" url="/ui/unboundcatalog/index"/>
+        </Unbound>
+    </Services>
+</menu>

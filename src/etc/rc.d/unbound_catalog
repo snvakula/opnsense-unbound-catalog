@@ -1,0 +1,33 @@
+#!/bin/sh
+#
+# PROVIDE: unbound_catalog
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+
+# shellcheck disable=SC1091
+. /etc/rc.subr
+
+name="unbound_catalog"
+# FreeBSD rc.subr consumes these service variables.
+# shellcheck disable=SC2034
+rcvar="unbound_catalog_enable"
+# shellcheck disable=SC2034
+desc="Unbound Catalog Sync"
+# shellcheck disable=SC2034
+command="/usr/sbin/daemon"
+pidfile="/var/run/unbound_catalog.pid"
+
+load_rc_config "${name}"
+: "${unbound_catalog_enable:=NO}"
+: "${unbound_catalog_log_level:=info}"
+
+case "${unbound_catalog_log_level}" in
+    debug|info|warning|error) ;;
+    *) unbound_catalog_log_level=info ;;
+esac
+
+command_args="-c -f -S -T unboundcatalog -s err -P ${pidfile} -p /var/run/unbound_catalog_worker.pid -u nobody"
+command_args="${command_args} /usr/local/bin/python3.13 -I /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/worker.py"
+command_args="${command_args} --log-level ${unbound_catalog_log_level}"
+
+run_rc_command "$1"

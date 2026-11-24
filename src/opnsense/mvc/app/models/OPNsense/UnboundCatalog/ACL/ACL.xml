@@ -1,0 +1,13 @@
+<acl>
+    <page-services-unboundcatalog>
+        <name>Services: Unbound DNS: Catalog Sync</name>
+        <patterns>
+            <pattern>ui/unboundcatalog/*</pattern>
+            <pattern>api/unboundcatalog/settings/*</pattern>
+            <pattern>api/unboundcatalog/service/*</pattern>
+            <pattern>api/unboundcatalog/zones/*</pattern>
+            <pattern>api/diagnostics/log/core/unboundcatalog</pattern>
+            <pattern>api/diagnostics/log/core/unboundcatalog/*</pattern>
+        </patterns>
+    </page-services-unboundcatalog>
+</acl>

@@ -1,0 +1,58 @@
+<form>
+    <field>
+        <id>catalog.enabled</id>
+        <label>Enabled</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>catalog.name</id>
+        <label>Catalog name</label>
+        <type>text</type>
+        <help>DNS name of the catalog zone.</help>
+    </field>
+    <field>
+        <id>catalog.transfer_servers</id>
+        <label>Transfer servers</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Enter IPv4 or IPv6 addresses for AXFR.</help>
+    </field>
+    <field>
+        <id>catalog.transfer_port</id>
+        <label>Transfer port</label>
+        <type>text</type>
+    </field>
+    <field>
+        <id>catalog.authoritative_servers</id>
+        <label>Authoritative servers</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Enter IPv4 or IPv6 addresses for member zones.</help>
+    </field>
+    <field>
+        <id>catalog.authoritative_port</id>
+        <label>Authoritative port</label>
+        <type>text</type>
+    </field>
+    <field>
+        <id>catalog.notify_sources</id>
+        <label>Allowed NOTIFY sources</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Enter IP addresses or CIDRs. Leave empty to reject all sources.</help>
+    </field>
+    <field>
+        <id>catalog.disable_dnssec</id>
+        <label>Disable DNSSEC validation</label>
+        <type>checkbox</type>
+        <help>Apply a DNSSEC exception to member zones in this catalog.</help>
+    </field>
+    <field>
+        <id>catalog.description</id>
+        <label>Description</label>
+        <type>text</type>
+    </field>
+</form>
