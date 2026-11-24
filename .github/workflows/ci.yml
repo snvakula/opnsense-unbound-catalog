@@ -22,12 +22,25 @@ jobs:
         run: |
           python -m pip install 'bandit==1.9.4' 'jinja2==3.1.6' 'ruff==0.17.6' 'dnspython==2.9.2'
           sudo apt-get update
-          sudo apt-get install -y php-cli shellcheck libxml2-utils
+          sudo apt-get install -y php-cli shellcheck libxml2-utils bind9 unbound
       - name: Validate Python and run tests
         run: |
           ruff check src tests
           bandit -r src
           python -m unittest discover -s tests -v
+      - name: Verify DNS delegation with BIND and Unbound
+        run: |
+          # Use isolated binaries so the distribution service's AppArmor profile
+          # does not restrict BIND to its installed configuration directory.
+          fixture_bin="$RUNNER_TEMP/catalog-dns-bin"
+          mkdir "$fixture_bin"
+          for tool in named unbound unbound-checkconf unbound-control; do
+            install -m 0755 "$(command -v "$tool")" "$fixture_bin/$tool"
+          done
+          sudo unshare --net sh -ec '
+            ip link set lo up
+            PATH="$2:$PATH" CATALOG_DNS_INTEGRATION=1 exec "$1" -m unittest discover -s tests -p test_delegation.py -v
+          ' sh "$(command -v python)" "$fixture_bin"
       - name: Validate PHP, XML and shell files
         run: |
           find src -type f \( -name '*.php' -o -name '*.inc' \) -print0 | xargs -0 -n 1 php -l
@@ -70,7 +83,7 @@ jobs:
               enabled: yes
             }
             EOF
-            pkg -o REPOS_DIR="$repos" install -y -r OPNsense python313 py313-dnspython
+            pkg -o REPOS_DIR="$repos" install -y -r OPNsense python313 py313-dnspython py313-Jinja2
             git clone --depth 1 --branch 26.7.9 https://github.com/opnsense/plugins.git "$build_dir/plugins"
             plugin="$build_dir/plugins/dns/unbound-catalog"
             mkdir -p "$plugin" dist

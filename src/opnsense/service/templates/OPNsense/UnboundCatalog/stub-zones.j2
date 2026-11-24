@@ -1,0 +1,14 @@
+# Managed by OPNsense Catalog Sync.
+{% for name, stub in zones | dictsort if stub.insecure -%}
+{% if loop.first %}server:
+{% endif %}    domain-insecure: "{{ name }}"
+{% endfor %}
+{% for name, stub in zones | dictsort %}
+stub-zone:
+    name: "{{ name }}"
+    stub-first: no
+    stub-prime: no
+{% for address in stub.addresses %}
+    stub-addr: {{ address }}
+{% endfor %}
+{% endfor %}
