@@ -43,7 +43,7 @@ CNAME, NXDOMAIN and NODATA answers from a separate child server. It checks
 response codes, answer sections, authority sections and expected records.
 It also covers IPv4 and IPv6 transfers, matching multi-catalog ownership,
 forward conflicts, DNSSEC exceptions, duplicate NOTIFY, periodic transfer,
-catalog and child-server outages, rollback, invalid and empty catalogs,
+catalog and child-server outages, rollback, invalid, truncated and empty catalogs,
 serial rollover and Unbound restart.
 
 ## Native acceptance

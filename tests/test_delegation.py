@@ -4,12 +4,14 @@ import ipaddress
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Thread
 
 import dns.flags
 import dns.message
@@ -17,9 +19,11 @@ import dns.opcode
 import dns.query
 import dns.rcode
 import dns.rdatatype
+import dns.rrset
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src/opnsense/scripts/OPNsense/UnboundCatalog"))
+from catalog import CatalogError, transfer
 from notify import Listener
 from reconcile import Transaction, pack, plan
 from sync import Catalog, Poller, Settings, atomic_json
@@ -154,6 +158,37 @@ class DelegationTest(unittest.TestCase):
         if process.poll() is None:
             process.terminate()
             process.communicate(timeout=10)
+
+    def test_incomplete_axfr_over_tcp(self):
+        answers = []
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            server.settimeout(3)
+
+            def close_after_soa():
+                connection, _ = server.accept()
+                with connection, connection.makefile("rb") as stream:
+                    connection.settimeout(3)
+                    length, = struct.unpack("!H", stream.read(2))
+                    request = dns.message.from_wire(stream.read(length))
+                    reply = dns.message.make_response(request)
+                    reply.flags |= dns.flags.AA
+                    reply.answer.append(dns.rrset.from_text(
+                        CATALOG, 60, "IN", "SOA", SOA.format(zone=CATALOG, serial=1),
+                    ))
+                    payload = reply.to_wire()
+                    connection.sendall(struct.pack("!H", len(payload)) + payload)
+                    answers.append(payload)
+
+            producer = Thread(target=close_after_soa)
+            producer.start()
+            try:
+                with self.assertRaisesRegex(CatalogError, "Transfer ended before the closing SOA"):
+                    transfer(CATALOG, "127.0.0.1", server.getsockname()[1], 3, 100, 1024)
+            finally:
+                producer.join(4)
+            self.assertEqual(len(answers), 1)
 
     def test_transfer_stub_and_delegation(self):
         with tempfile.TemporaryDirectory() as temporary:
