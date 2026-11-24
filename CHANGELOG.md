@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0
+
+- Added a signed-repository FreeBSD build and tagged release workflow with SHA-256 checksums.
+- Documented catalog producers, firewall flows, cache behavior, upgrade, recovery, and uninstallation.
+- Expanded real DNS coverage for multi-catalog ownership, conflicts, interruptions, and source outages.
+- Enforced server and source list limits in the native model and made shutdown interrupt active transfers.
+
 ## 0.5.0
 
 - Added live resolver, membership, listener, and synchronization status to the native GUI.
