@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from threading import Thread
 
@@ -261,6 +262,15 @@ include-toplevel: "{folder}/active/*.conf"
             self.assertEqual(set(transaction.current()[PARENT].owners), {CATALOG, SECOND})
             self.assertIn(PARENT, resolver.runtime()[1])
             assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
+
+            for address in ("::1", "127.0.0.1"):
+                family_catalogs = {name: replace(row, authorities=(address,)) for name, row in catalogs.items()}
+                poller.settings = replace(settings, catalogs=family_catalogs)
+                self.assertEqual(apply(), {})
+                self.assertEqual(resolver.runtime()[0][PARENT], ((address,), True))
+                assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
+            poller.settings = settings
+            self.assertEqual(apply(), {})
 
             # A resolver restart must reproduce both effective files and runtime state.
             self.stop(unbound)
