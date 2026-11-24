@@ -8,8 +8,7 @@ delegations beneath a member zone. Forward Zones send recursive queries to
 an upstream resolver.
 
 After installing the native package, open **Services → Unbound DNS → Catalog
-Sync**. The plugin starts after you enable it, configure a catalog, and apply
-the settings. It polls configured catalogs and accepts source-restricted
+Sync**. The plugin starts after you enable it and apply the settings. It polls enabled catalogs and accepts source-restricted
 DNS NOTIFY over IPv4 and IPv6. The native GUI reports both catalog membership
 and applied resolver state.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Apply healthy zones independently of conflicts.
+- Add per-zone exclusions to the Zones tab.
+- Start the enabled service even with an empty catalog list.
+- Withdraw catalog-owned zones when the catalog is disabled or deleted and
+  require a fresh transfer on reactivation.
+
 ## 1.0.0
 
 - Added a signed-repository FreeBSD build and tagged release workflow with SHA-256 checksums.

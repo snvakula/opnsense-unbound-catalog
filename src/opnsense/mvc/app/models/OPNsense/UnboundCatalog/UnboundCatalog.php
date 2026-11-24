@@ -9,22 +9,7 @@ class UnboundCatalog extends BaseModel
 {
     public function isEnabled(): bool
     {
-        if ((string)$this->general->enabled !== '1') {
-            return false;
-        }
-
-        foreach ($this->catalogs->catalog->iterateItems() as $catalog) {
-            if (
-                (string)$catalog->enabled === '1' &&
-                (string)$catalog->name !== '' &&
-                (string)$catalog->transfer_servers !== '' &&
-                (string)$catalog->authoritative_servers !== ''
-            ) {
-                return true;
-            }
-        }
-
-        return false;
+        return (string)$this->general->enabled === '1';
     }
 
     public function performValidation($validateFullModel = false)

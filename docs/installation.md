@@ -11,10 +11,10 @@ versioned assets when the release workflow runs.
 Verify the download on the firewall and install it from a root shell.
 
 ```sh
-package=os-unbound-catalog-1.0.0.pkg
+package=os-unbound-catalog-1.1.0.pkg
 test "$(sha256 -q "$package")" = "$(awk 'NR == 1 { print $1 }' "$package.sha256")"
 pkg install -y python313 py313-dnspython py313-Jinja2
-pkg add ./os-unbound-catalog-1.0.0.pkg
+pkg add ./os-unbound-catalog-1.1.0.pkg
 configctl unboundcatalog status
 ```
 
@@ -29,7 +29,7 @@ Catalog Sync** privilege to an OPNsense group. See the [configuration guide](con
    For an offline recovery copy, save `/var/db/unboundcatalog` separately
    while the worker is stopped.
 2. Verify the new package checksum. Update an existing local installation with
-   `pkg add -f ./os-unbound-catalog-1.0.0.pkg`.
+   `pkg add -f ./os-unbound-catalog-1.1.0.pkg`.
 3. Confirm the saved catalogs and their applied zone status in the GUI. Check
    that Unbound remains operational and that the worker is running if enabled.
 

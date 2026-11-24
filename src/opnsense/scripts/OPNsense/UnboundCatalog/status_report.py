@@ -2,12 +2,13 @@
 
 from collections import defaultdict
 
-from reconcile import ReconcileError, plan
+from reconcile import ReconcileError, plan, retiring
 from unbound import visible_stub
 
 
 def report(settings, records, applied, outcome, resolver, listener, include_zones):
-    desired, catalog_conflicts = plan(settings.catalogs, records, applied)
+    retired = retiring(settings, applied, records)
+    desired, catalog_conflicts = plan(settings.catalogs, records, applied, settings.disabled_zones, retired)
     conflicts = outcome.get("conflicts", {}) | catalog_conflicts
     resolver_error = outcome.get("error")
     pending = outcome.get("pending", False)
@@ -37,9 +38,10 @@ def report(settings, records, applied, outcome, resolver, listener, include_zone
             "next": record.get("next"), "serial": record.get("serial"), "error": record.get("error"),
             "zones": 0, "conflicts": 0,
         }
+    zones = applied.keys() | desired.keys() | proposed_owners.keys() | conflicts.keys()
     counts = dict.fromkeys(("managed", "active", "conflict", "pending"), 0)
     rows = []
-    for zone in sorted(applied.keys() | desired.keys() | proposed_owners.keys() | conflicts.keys()):
+    for zone in sorted(zones):
         old, new = applied.get(zone), desired.get(zone)
         expected = new or old
         owners = set(expected.owners) if expected else set()
@@ -51,6 +53,10 @@ def report(settings, records, applied, outcome, resolver, listener, include_zone
         )
         if zone in conflicts:
             state, error = "conflict", conflicts[zone]
+        elif zone in settings.disabled_zones and old is None:
+            state, error = "disabled", None
+        elif zone in settings.disabled_zones or (owners and owners <= retired):
+            state, error = ("error", resolver_error) if resolver_error else ("pending", None)
         elif not owners.intersection(settings.catalogs):
             state, error = "disabled", None
         elif resolver_error:
