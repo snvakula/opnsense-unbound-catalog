@@ -102,3 +102,25 @@ class PollerTest(unittest.TestCase):
             now = 405
             poller.run_due()
             self.assertEqual(load_json(path)["catalogs"][ZONE]["members"], {})
+
+    def test_debounce_keeps_first_deadline(self):
+        catalog = Catalog(ZONE, ("192.0.2.1",), 53, ("192.0.2.2",), 53, False)
+        now = 100
+        calls = []
+
+        def fetch(*_args):
+            calls.append(now)
+            return Snapshot(1, {})
+
+        with tempfile.TemporaryDirectory() as directory:
+            poller = Poller(Settings({ZONE: catalog}), Path(directory) / "state.json",
+                            lambda *_: None, fetch, lambda: now, lambda: now)
+            poller.run_due()
+            now = 110
+            poller.request(ZONE)
+            now = 111
+            poller.request(ZONE)
+            self.assertFalse(poller.run_due())
+            now = 112
+            self.assertTrue(poller.run_due())
+            self.assertEqual(calls, [100, 112])

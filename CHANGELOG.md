@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Added source-restricted dual-stack DNS NOTIFY with debouncing, rate limits,
+  and member-zone acknowledgements.
+
 ## 0.2.0
 
 - Added bounded IPv4 and IPv6 AXFR, RFC 9432 validation, periodic polling,
