@@ -1,0 +1,5 @@
+#!/bin/sh
+
+if [ -x /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/service.sh ]; then
+    /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/service.sh stop || exit 1
+fi

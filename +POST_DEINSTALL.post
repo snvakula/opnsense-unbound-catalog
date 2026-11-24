@@ -1,0 +1,9 @@
+if [ ! -x /usr/local/etc/rc.d/unbound_catalog ]; then
+    rm -f /etc/rc.conf.d/unbound_catalog /var/run/unbound_catalog.lock
+    if [ -x /usr/local/etc/rc.d/configd ]; then
+        /usr/local/etc/rc.d/configd restart
+    fi
+    if [ -x /usr/local/sbin/configctl ]; then
+        /usr/local/sbin/configctl syslog reload
+    fi
+fi

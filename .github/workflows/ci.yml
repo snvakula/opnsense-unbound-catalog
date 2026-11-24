@@ -1,0 +1,73 @@
+name: Validate and build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Install check tools
+        run: |
+          python -m pip install 'bandit==1.9.4' 'jinja2==3.1.6' 'ruff==0.17.6'
+          sudo apt-get update
+          sudo apt-get install -y php-cli shellcheck libxml2-utils
+      - name: Validate Python and run tests
+        run: |
+          ruff check src tests
+          bandit -r src
+          python -m unittest discover -s tests -v
+      - name: Validate PHP, XML and shell files
+        run: |
+          find src -type f \( -name '*.php' -o -name '*.inc' \) -print0 | xargs -0 -n 1 php -l
+          find src -type f -name '*.xml' -print0 | xargs -0 -n 1 xmllint --noout
+          shellcheck -s sh src/etc/rc.d/unbound_catalog \
+            src/opnsense/scripts/OPNsense/UnboundCatalog/service.sh \
+            +PRE_DEINSTALL.pre +POST_DEINSTALL.post
+
+  package:
+    needs: source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build on FreeBSD 15.1 amd64
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1
+        with:
+          release: '15.1'
+          arch: x86_64
+          prepare: pkg install -y git python313
+          run: |
+            set -eu
+            build_dir=$(mktemp -d)
+            trap 'rm -rf "$build_dir"' EXIT
+            git clone --depth 1 --branch 26.7.9 https://github.com/opnsense/plugins.git "$build_dir/plugins"
+            plugin="$build_dir/plugins/dns/unbound-catalog"
+            mkdir -p "$plugin" dist
+            cp -R Makefile pkg-descr src +PRE_DEINSTALL.pre +POST_DEINSTALL.post "$plugin/"
+            chmod -R a+rX "$plugin/src"
+            make -C "$plugin" PLUGIN_ABI=26.7 PLUGIN_PHP=85 \
+              PLUGIN_HASH="$(git rev-parse --short=9 HEAD)" package
+            cp "$plugin"/work/pkg/os-unbound-catalog-*.pkg dist/
+            cd dist
+            for package in os-unbound-catalog-*.pkg; do
+              pkg info -F "$package"
+              sha256 "$package" > "$package.sha256"
+            done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: os-unbound-catalog-FreeBSD-15-amd64
+          path: dist/
+          if-no-files-found: error

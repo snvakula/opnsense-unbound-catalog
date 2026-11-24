@@ -1,0 +1,107 @@
+<model>
+    <mount>//OPNsense/UnboundCatalog</mount>
+    <version>0.1.0</version>
+    <description>Unbound Catalog Sync settings</description>
+    <items>
+        <general>
+            <enabled type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </enabled>
+            <sync_interval type="IntegerField">
+                <Default>300</Default>
+                <Required>Y</Required>
+                <MinimumValue>10</MinimumValue>
+                <MaximumValue>86400</MaximumValue>
+            </sync_interval>
+            <axfr_timeout type="IntegerField">
+                <Default>10</Default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>300</MaximumValue>
+            </axfr_timeout>
+            <notify_enabled type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </notify_enabled>
+            <notify_port type="IntegerField">
+                <Default>1053</Default>
+                <Required>Y</Required>
+                <MinimumValue>1024</MinimumValue>
+                <MaximumValue>65535</MaximumValue>
+            </notify_port>
+            <notify_debounce type="IntegerField">
+                <Default>2</Default>
+                <Required>Y</Required>
+                <MinimumValue>0</MinimumValue>
+                <MaximumValue>300</MaximumValue>
+            </notify_debounce>
+            <listen_ipv4 type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </listen_ipv4>
+            <listen_ipv6 type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </listen_ipv6>
+            <log_level type="OptionField">
+                <Default>info</Default>
+                <Required>Y</Required>
+                <OptionValues>
+                    <debug>Debug</debug>
+                    <info>Info</info>
+                    <warning>Warning</warning>
+                    <error>Error</error>
+                </OptionValues>
+            </log_level>
+        </general>
+        <catalogs>
+            <catalog type="ArrayField">
+                <enabled type="BooleanField">
+                    <Default>1</Default>
+                    <Required>Y</Required>
+                </enabled>
+                <name type="HostnameField">
+                    <IpAllowed>N</IpAllowed>
+                    <Required>Y</Required>
+                </name>
+                <transfer_servers type="NetworkField">
+                    <Required>Y</Required>
+                    <AsList>Y</AsList>
+                    <NetMaskAllowed>N</NetMaskAllowed>
+                    <WildcardEnabled>N</WildcardEnabled>
+                </transfer_servers>
+                <transfer_port type="IntegerField">
+                    <Default>53</Default>
+                    <Required>Y</Required>
+                    <MinimumValue>1</MinimumValue>
+                    <MaximumValue>65535</MaximumValue>
+                </transfer_port>
+                <authoritative_servers type="NetworkField">
+                    <Required>Y</Required>
+                    <AsList>Y</AsList>
+                    <NetMaskAllowed>N</NetMaskAllowed>
+                    <WildcardEnabled>N</WildcardEnabled>
+                </authoritative_servers>
+                <authoritative_port type="IntegerField">
+                    <Default>53</Default>
+                    <Required>Y</Required>
+                    <MinimumValue>1</MinimumValue>
+                    <MaximumValue>65535</MaximumValue>
+                </authoritative_port>
+                <notify_sources type="NetworkField">
+                    <AsList>Y</AsList>
+                    <WildcardEnabled>N</WildcardEnabled>
+                </notify_sources>
+                <disable_dnssec type="BooleanField">
+                    <Default>0</Default>
+                    <Required>Y</Required>
+                </disable_dnssec>
+                <description type="TextField">
+                    <Mask>/\A[^\r\n]{0,255}\z/u</Mask>
+                    <ValidationMessage>Enter a description up to 255 characters on one line.</ValidationMessage>
+                </description>
+            </catalog>
+        </catalogs>
+    </items>
+</model>

@@ -1,0 +1,52 @@
+<form>
+    <field>
+        <id>catalogsync.general.enabled</id>
+        <label>Enable Catalog Sync</label>
+        <type>checkbox</type>
+        <help>Start the service after Apply when there is an enabled catalog.</help>
+    </field>
+    <field>
+        <id>catalogsync.general.sync_interval</id>
+        <label>Synchronization interval</label>
+        <type>text</type>
+        <help>Time between full catalog reconciliations in seconds.</help>
+    </field>
+    <field>
+        <id>catalogsync.general.axfr_timeout</id>
+        <label>AXFR timeout</label>
+        <type>text</type>
+        <help>Transfer time limit in seconds.</help>
+    </field>
+    <field>
+        <id>catalogsync.general.notify_enabled</id>
+        <label>Enable DNS NOTIFY</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>catalogsync.general.notify_port</id>
+        <label>NOTIFY port</label>
+        <type>text</type>
+        <help>UDP port between 1024 and 65535.</help>
+    </field>
+    <field>
+        <id>catalogsync.general.notify_debounce</id>
+        <label>NOTIFY debounce</label>
+        <type>text</type>
+        <help>Time to merge repeated notifications in seconds.</help>
+    </field>
+    <field>
+        <id>catalogsync.general.listen_ipv4</id>
+        <label>Listen on IPv4</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>catalogsync.general.listen_ipv6</id>
+        <label>Listen on IPv6</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>catalogsync.general.log_level</id>
+        <label>Log level</label>
+        <type>dropdown</type>
+    </field>
+</form>
