@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src/opnsense/scripts/OPNsense/UnboundCatalog"))
 from reconcile import ReconcileError, Stub, Transaction, pack, plan
 from resolver_service import eligible_snapshots, run
-from sync import Catalog, Settings, atomic_json
+from sync import Catalog, Poller, Settings, atomic_json, load_json
 from unbound import Unbound
 
 TEMPLATE = ROOT / "src/opnsense/service/templates/OPNsense/UnboundCatalog/stub-zones.j2"
@@ -62,6 +62,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(set(desired), {PARENT})
         self.assertEqual(desired[PARENT].owners, {SECOND: "b"})
         self.assertEqual(plan({}, {}, old, disabled={PARENT}, retired=retired), ({}, {}))
+
+    def test_worker_start_discards_removed_and_disabled_snapshots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            filename = Path(temporary) / "state.json"
+            removed = "removed.example.net."
+            records = {name: {"members": {"x": PARENT}} for name in (CATALOG, SECOND, removed)}
+            atomic_json(filename, {"version": 1, "catalogs": records})
+            settings = Settings({}, disabled_catalogs=frozenset({SECOND}),
+                                configured_catalogs=frozenset({CATALOG, SECOND}))
+            Poller(settings, filename, Mock())
+            self.assertEqual(load_json(filename)["catalogs"], {CATALOG: records[CATALOG]})
 
     def test_reactivated_catalog_requires_a_new_generation(self):
         with tempfile.TemporaryDirectory() as temporary:

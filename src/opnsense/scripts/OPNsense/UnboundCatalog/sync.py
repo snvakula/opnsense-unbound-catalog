@@ -185,7 +185,12 @@ class Poller:
                 raise ValueError("Unsupported snapshot format")
         except FileNotFoundError:
             saved = {"catalogs": {}}
-        self.state = {name: saved["catalogs"].get(name, {}) for name in settings.catalogs}
+        records = saved["catalogs"]
+        retired = settings.retired_catalogs(records)
+        if retired & records.keys():
+            records = {name: record for name, record in records.items() if name not in retired}
+            atomic_json(state_path, {"version": 1, "catalogs": records})
+        self.state = {name: records.get(name, {}) for name in settings.catalogs}
         self.due = dict.fromkeys(settings.catalogs, self.clock())
         self.failures = dict.fromkeys(settings.catalogs, 0)
         self.requests = {}

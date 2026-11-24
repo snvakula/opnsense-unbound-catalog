@@ -5,6 +5,7 @@
 - Apply healthy zones independently of conflicts.
 - Add per-zone exclusions to the Zones tab.
 - Start the enabled service even with an empty catalog list.
+- Discard stale catalog snapshots and ownerless conflict records.
 - Withdraw catalog-owned zones when the catalog is disabled or deleted and
   require a fresh transfer on reactivation.
 

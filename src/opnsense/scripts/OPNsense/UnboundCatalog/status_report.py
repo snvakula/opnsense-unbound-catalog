@@ -9,7 +9,6 @@ from unbound import visible_stub
 def report(settings, records, applied, outcome, resolver, listener, include_zones):
     retired = retiring(settings, applied, records)
     desired, catalog_conflicts = plan(settings.catalogs, records, applied, settings.disabled_zones, retired)
-    conflicts = outcome.get("conflicts", {}) | catalog_conflicts
     resolver_error = outcome.get("error")
     pending = outcome.get("pending", False)
     stubs, insecure, validator = {}, set(), False
@@ -28,6 +27,12 @@ def report(settings, records, applied, outcome, resolver, listener, include_zone
         if name in settings.catalogs:
             for zone in record.get("members", {}).values():
                 proposed_owners[zone].add(name)
+
+    # Old diagnostics can outlive the catalog that produced them.
+    retained = {zone for zone, stub in applied.items() if set(stub.owners) - retired}
+    related = (proposed_owners.keys() | desired.keys() | retained) - settings.disabled_zones
+    conflicts = {zone: error for zone, error in outcome.get("conflicts", {}).items() if zone in related}
+    conflicts.update(catalog_conflicts)
 
     names = settings.catalogs.keys() | {name for stub in applied.values() for name in stub.owners}
     catalogs = {}
