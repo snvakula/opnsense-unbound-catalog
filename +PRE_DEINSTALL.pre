@@ -3,3 +3,8 @@
 if [ -x /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/service.sh ]; then
     /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/service.sh stop || exit 1
 fi
+
+if [ -x /usr/local/bin/python3.13 ] &&
+    [ -f /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/resolver_service.py ]; then
+    /usr/local/bin/python3.13 -I /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/resolver_service.py remove || exit 1
+fi

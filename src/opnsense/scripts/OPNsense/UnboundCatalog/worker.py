@@ -2,8 +2,10 @@
 
 import argparse
 import signal
+import subprocess  # nosec B404
 import sys
 import syslog
+import time
 from pathlib import Path
 
 # Isolated Python omits the root-owned script directory from imports.
@@ -40,10 +42,14 @@ def main():
         log("error", f"Cannot initialize Catalog Sync: {error}")
         return 1
     log("info", "Catalog Sync started")
+    reconcile_at = 0.0
     with Listener(poller):
         while True:
             try:
-                poller.run_due()
+                changed = poller.run_due()
+                if (changed or time.monotonic() >= reconcile_at) and args.config == Path("/var/run/unboundcatalog/settings.json"):
+                    _reconcile()
+                    reconcile_at = time.monotonic() + 15
             except (OSError, ValueError) as error:
                 log("error", f"Cannot save catalog snapshot: {error}")
             delay = max(0.05, min(poller.next_delay(), 0.25))
@@ -51,6 +57,19 @@ def main():
                 break
     log("info", "Catalog Sync stopped")
     return 0
+
+
+def _reconcile():
+    try:
+        # Configd accepts one constant action and does not receive data from DNS.
+        result = subprocess.run(  # nosec B603
+            ["/usr/local/sbin/configctl", "unboundcatalog", "reconcile"],
+            capture_output=True, timeout=120, check=False,
+        )
+        if result.returncode or result.stdout.strip() != b"OK":
+            log("error", "Configd rejected or failed the Unbound reconciliation request")
+    except (OSError, subprocess.TimeoutExpired) as error:
+        log("error", f"Cannot request Unbound reconciliation: {error}")
 
 
 if __name__ == "__main__":

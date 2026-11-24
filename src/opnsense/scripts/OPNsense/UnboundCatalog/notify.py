@@ -129,7 +129,7 @@ class Listener:
         if not self.settings.notify_enabled:
             return self
         for family, enabled, address in [
-            (socket.AF_INET, self.settings.ipv4, "0.0.0.0"),  # nosec B104 - RFC 1996 listener with a source allowlist
+            (socket.AF_INET, self.settings.ipv4, "0.0.0.0"),  # nosec B104
             (socket.AF_INET6, self.settings.ipv6, "::"),
         ]:
             if not enabled:

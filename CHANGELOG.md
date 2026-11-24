@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Generate and validate plugin-owned Unbound Stub Zone configuration.
+- Reconcile runtime changes with recovery and targeted cache invalidation.
+- Preserve applied configuration on catalog outages and report exact-name conflicts.
+- Verify delegated recursive DNS answers with BIND and Unbound.
+
 ## 0.3.0
 
 - Added source-restricted dual-stack DNS NOTIFY with debouncing, rate limits,
