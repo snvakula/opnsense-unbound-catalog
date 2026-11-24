@@ -73,7 +73,10 @@ class WorkerTest(unittest.TestCase):
 import runpy
 import sys
 import syslog
-syslog.syslog = lambda priority, message: print(message, flush=True)
+def capture_lifecycle(priority, message):
+    if message.startswith("Catalog Sync"):
+        print(message, flush=True)
+syslog.syslog = capture_lifecycle
 worker = sys.argv.pop(1)
 runpy.run_path(worker, run_name="__main__")
 """

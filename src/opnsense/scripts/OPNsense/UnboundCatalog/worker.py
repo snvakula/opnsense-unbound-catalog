@@ -44,8 +44,9 @@ def main():
     args = parser.parse_args()
 
     immediate = {signal.SIGUSR1}
-    signal.pthread_sigmask(signal.SIG_BLOCK, immediate)
-    for stopped in (signal.SIGTERM, signal.SIGINT):
+    termination = {signal.SIGTERM, signal.SIGINT}
+    signal.pthread_sigmask(signal.SIG_BLOCK, immediate | termination)
+    for stopped in termination:
         signal.signal(stopped, stop_worker)
     syslog.openlog("unboundcatalog", syslog.LOG_PID, syslog.LOG_DAEMON)
     syslog.setlogmask(syslog.LOG_UPTO(LEVELS[args.log_level]))
@@ -54,12 +55,14 @@ def main():
     except (KeyError, OSError, ValueError, TypeError) as error:
         log("error", f"Cannot initialize Catalog Sync: {error}")
         return 1
-    log("info", "Catalog Sync started")
     reconcile_at = 0.0
     native = args.config == CONFIG
     previous_families = None
     try:
         with Listener(poller) as listener:
+            # Deliver termination to the main thread only after the listener can be closed.
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, termination)
+            log("info", "Catalog Sync started")
             while True:
                 try:
                     families = listener.active_families()
