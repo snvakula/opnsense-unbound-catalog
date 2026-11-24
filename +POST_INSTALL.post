@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Templates have already been refreshed by the OPNsense package framework.
+if [ -f /conf/config.xml ] &&
+    /usr/local/etc/rc.d/unbound_catalog enabled; then
+    /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/service.sh restart || exit 1
+fi

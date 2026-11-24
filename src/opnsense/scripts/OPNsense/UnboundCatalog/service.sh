@@ -16,7 +16,7 @@ case "${1:-}" in
         esac
         exec /bin/ps -p "$pid" -o etime=
         ;;
-    start|stop|restart|apply)
+    start|stop|restart|apply|sync)
         exec /usr/bin/lockf -k -t 10 /var/run/unbound_catalog.lock "$0" "locked-$1"
         ;;
 esac
@@ -48,6 +48,22 @@ start_service()
 case "${1:-}" in
     locked-stop)
         stop_service
+        ;;
+    locked-sync)
+        "$rc" onestatus >/dev/null || exit 1
+        pid=$(cat /var/run/unbound_catalog_worker.pid)
+        case "$pid" in
+            ''|*[!0-9]*) exit 1 ;;
+        esac
+        # Refuse to signal a PID that has been reused by an unrelated process.
+        user=$(/bin/ps -p "$pid" -o user=)
+        args=$(/bin/ps -p "$pid" -o command=)
+        [ "$user" = nobody ] || exit 1
+        case "$args" in
+            "/usr/local/bin/python3.13 -I /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/worker.py "*) ;;
+            *) exit 1 ;;
+        esac
+        /bin/kill -USR1 "$pid"
         ;;
     locked-start|locked-restart|locked-apply)
         result=$(/usr/local/sbin/configctl template reload OPNsense/UnboundCatalog)

@@ -164,13 +164,16 @@ class Unbound:
                 proposed.write_text(original.replace(wildcard, str(includes / "*.conf")))
                 self.command(self.check_binary, proposed)
 
-    def _validator(self):
+    def validation_enabled(self):
         return "validator" in self.control("get_option", "module-config").strip('"').split()
 
-    def matches(self, desired, previous):
+    def files_match(self, desired):
         expected = self.render(desired)
+        return all(self.present(path) == expected for path in (self.persistent, self.active))
+
+    def matches(self, desired, previous):
         stubs, insecure = self.runtime()
-        validator = self._validator()
+        validator = self.validation_enabled()
         for zone in desired.keys() | previous.keys():
             stub = desired.get(zone)
             if stub is None:
@@ -178,7 +181,7 @@ class Unbound:
                     return False
             elif stubs.get(zone) != visible_stub(stub) or (validator and (zone in insecure) != stub.insecure):
                 return False
-        return all(self.present(path) == expected for path in (self.persistent, self.active))
+        return self.files_match(desired)
 
     def modify(self, *args):
         if self.control(*args) != "ok":
@@ -187,7 +190,7 @@ class Unbound:
     def transition(self, previous, desired, recovering=False):
         self.check_owner(previous, desired)
         stubs, insecure = self.runtime()
-        validator = self._validator()
+        validator = self.validation_enabled()
         touched = set()
         for zone in sorted(previous.keys() | desired.keys()):
             old, new = previous.get(zone), desired.get(zone)

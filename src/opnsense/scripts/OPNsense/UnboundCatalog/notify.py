@@ -150,6 +150,11 @@ class Listener:
             self.thread.start()
         return self
 
+    def active_families(self):
+        if self.thread and self.thread.is_alive():
+            return sorted(key.fileobj.family.name for key in self.selector.get_map().values())
+        return []
+
     def _listen(self):
         while not self.stop.is_set():
             for key, _ in self.selector.select(0.25):

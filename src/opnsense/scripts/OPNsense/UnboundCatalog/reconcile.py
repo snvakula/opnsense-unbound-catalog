@@ -53,10 +53,7 @@ def plan(settings, records, current):
 
     for name in sorted(fresh):
         catalog = settings[name]
-        addresses = tuple(sorted({
-            address if catalog.authoritative_port == 53 else f"{address}@{catalog.authoritative_port}"
-            for address in catalog.authorities
-        }))
+        addresses = catalog.stub_addresses
         if not addresses:
             raise ReconcileError(f"{name} has no authoritative addresses")
         for label, target in records[name]["members"].items():

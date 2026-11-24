@@ -47,7 +47,7 @@ jobs:
           find src -type f -name '*.xml' -print0 | xargs -0 -n 1 xmllint --noout
           shellcheck -s sh src/etc/rc.d/unbound_catalog \
             src/opnsense/scripts/OPNsense/UnboundCatalog/service.sh \
-            +PRE_DEINSTALL.pre +POST_DEINSTALL.post
+            +PRE_DEINSTALL.pre +POST_DEINSTALL.post +POST_INSTALL.post
 
   package:
     needs: source
@@ -87,7 +87,7 @@ jobs:
             git clone --depth 1 --branch 26.7.9 https://github.com/opnsense/plugins.git "$build_dir/plugins"
             plugin="$build_dir/plugins/dns/unbound-catalog"
             mkdir -p "$plugin" dist
-            cp -R Makefile pkg-descr src +PRE_DEINSTALL.pre +POST_DEINSTALL.post "$plugin/"
+            cp -R Makefile pkg-descr src +PRE_DEINSTALL.pre +POST_DEINSTALL.post +POST_INSTALL.post "$plugin/"
             chmod -R a+rX "$plugin/src"
             make -C "$plugin" PLUGIN_ABI=26.7 PLUGIN_PHP=85 \
               PLUGIN_HASH="$(git rev-parse --short=9 HEAD)" package
