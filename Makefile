@@ -1,7 +1,7 @@
 PLUGIN_NAME=		unbound-catalog
-PLUGIN_VERSION=		0.1.0
+PLUGIN_VERSION=		0.2.0
 PLUGIN_COMMENT=		Manage Unbound DNS Catalog Zone synchronization
-PLUGIN_DEPENDS=		python313
+PLUGIN_DEPENDS=		python313 py313-dnspython
 PLUGIN_MAINTAINER=	snvakula@gmail.com
 PLUGIN_WWW=		https://github.com/snvakula/opnsense-unbound-catalog
 PLUGIN_LICENSE=		BSD2CLAUSE

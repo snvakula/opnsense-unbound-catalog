@@ -18,6 +18,30 @@
         <help>Transfer time limit in seconds.</help>
     </field>
     <field>
+        <id>catalogsync.general.max_records</id>
+        <label>Maximum AXFR records</label>
+        <type>text</type>
+        <advanced>true</advanced>
+    </field>
+    <field>
+        <id>catalogsync.general.max_bytes</id>
+        <label>Maximum AXFR bytes</label>
+        <type>text</type>
+        <advanced>true</advanced>
+    </field>
+    <field>
+        <id>catalogsync.general.retry_initial</id>
+        <label>Initial retry delay (seconds)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+    </field>
+    <field>
+        <id>catalogsync.general.retry_max</id>
+        <label>Maximum retry delay (seconds)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+    </field>
+    <field>
         <id>catalogsync.general.notify_enabled</id>
         <label>Enable DNS NOTIFY</label>
         <type>checkbox</type>

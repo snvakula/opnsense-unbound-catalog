@@ -1,1 +1,2 @@
 rc.conf.d:/etc/rc.conf.d/unbound_catalog
+settings.json:/var/run/unboundcatalog/settings.json

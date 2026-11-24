@@ -1,0 +1,2 @@
+{% set root = 'OPNsense.UnboundCatalog' %}
+{{ {'general': helpers.getNodeByTag(root ~ '.general') or {}, 'catalogs': helpers.toList(root ~ '.catalogs.catalog') | select('mapping') | list} | tojson }}

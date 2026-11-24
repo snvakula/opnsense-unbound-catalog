@@ -41,6 +41,13 @@ class UnboundCatalog extends BaseModel
             ));
         }
 
+        if ((int)(string)$this->general->retry_initial > (int)(string)$this->general->retry_max) {
+            $messages->appendMessage(new Message(
+                gettext('Set the maximum retry delay at or above the initial delay.'),
+                'general.retry_max'
+            ));
+        }
+
         $names = [];
         foreach ($this->catalogs->catalog->iterateItems() as $catalog) {
             $name = strtolower(rtrim((string)$catalog->name, '.'));

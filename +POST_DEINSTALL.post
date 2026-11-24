@@ -1,5 +1,6 @@
 if [ ! -x /usr/local/etc/rc.d/unbound_catalog ]; then
-    rm -f /etc/rc.conf.d/unbound_catalog /var/run/unbound_catalog.lock
+    rm -f /etc/rc.conf.d/unbound_catalog /var/run/unbound_catalog.lock /var/run/unboundcatalog/settings.json
+    rmdir /var/run/unboundcatalog 2>/dev/null || true
     if [ -x /usr/local/etc/rc.d/configd ]; then
         /usr/local/etc/rc.d/configd restart
     fi
