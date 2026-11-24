@@ -7,6 +7,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
 from catalog import CatalogError, dns_name, transfer
 from dns.exception import DNSException
@@ -91,6 +92,11 @@ class Settings:
     max_bytes: int = 4 * 1024 * 1024
     retry_initial: int = 5
     retry_max: int = 120
+    notify_enabled: bool = True
+    notify_port: int = 1053
+    debounce: int = 2
+    ipv4: bool = True
+    ipv6: bool = True
 
     @classmethod
     def read(cls, path):
@@ -113,6 +119,8 @@ class Settings:
                     addresses(row["authoritative_servers"]),
                     bounded_int(row.get("authoritative_port"), 53, 1, 65535),
                     flag(row.get("disable_dnssec")),
+                    tuple(ipaddress.ip_network(value.strip(), strict=False)
+                          for value in (row.get("notify_sources") or "").split(",") if value.strip()),
                 )
         initial = bounded_int(general.get("retry_initial"), 5, 1, 300)
         return cls(
@@ -123,6 +131,11 @@ class Settings:
             bounded_int(general.get("max_bytes"), 4194304, 512, 33554432),
             initial,
             bounded_int(general.get("retry_max"), 120, initial, 3600),
+            flag(general.get("notify_enabled"), True),
+            bounded_int(general.get("notify_port"), 1053, 1024, 65535),
+            bounded_int(general.get("notify_debounce"), 2, 0, 300),
+            flag(general.get("listen_ipv4"), True),
+            flag(general.get("listen_ipv6"), True),
         )
 
 
@@ -143,11 +156,33 @@ class Poller:
         self.state = {name: saved["catalogs"].get(name, {}) for name in settings.catalogs}
         self.due = dict.fromkeys(settings.catalogs, self.clock())
         self.failures = dict.fromkeys(settings.catalogs, 0)
+        self.requests = {}
+        self.request_lock = Lock()
+        self._index_members()
+
+    def _index_members(self):
+        members = {}
+        for catalog, entry in self.state.items():
+            for zone in entry.get("members", {}).values():
+                members.setdefault(zone, []).append(catalog)
+        self.member_owners = members
+
+    def request(self, name):
+        with self.request_lock:
+            self.requests.setdefault(name, self.clock() + self.settings.debounce)
+
+    def _schedule_requests(self):
+        with self.request_lock:
+            for name, requested in self.requests.items():
+                if not self.failures[name]:
+                    self.due[name] = min(self.due[name], requested)
+            self.requests.clear()
 
     def next_delay(self):
         return max(0, min(self.due.values(), default=self.clock() + 60) - self.clock())
 
     def run_due(self):
+        self._schedule_requests()
         ran = False
         for name, due in self.due.items():
             if due <= self.clock():
@@ -187,3 +222,6 @@ class Poller:
         updated = dict(self.state, **{name: current})
         atomic_json(self.path, {"version": 1, "catalogs": updated})
         self.state = updated
+        self._index_members()
+        with self.request_lock:
+            self.requests.pop(name, None)

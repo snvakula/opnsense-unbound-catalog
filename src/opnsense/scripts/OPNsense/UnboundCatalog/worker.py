@@ -8,6 +8,7 @@ from pathlib import Path
 
 # Isolated Python omits the root-owned script directory from imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from notify import Listener
 from sync import Poller, Settings
 
 LEVELS = {
@@ -39,14 +40,15 @@ def main():
         log("error", f"Cannot initialize Catalog Sync: {error}")
         return 1
     log("info", "Catalog Sync started")
-    while True:
-        try:
-            poller.run_due()
-        except (OSError, ValueError) as error:
-            log("error", f"Cannot save catalog snapshot: {error}")
-        delay = max(0.1, min(poller.next_delay(), 60))
-        if signal.sigtimedwait(stop_signals, delay) is not None:
-            break
+    with Listener(poller):
+        while True:
+            try:
+                poller.run_due()
+            except (OSError, ValueError) as error:
+                log("error", f"Cannot save catalog snapshot: {error}")
+            delay = max(0.05, min(poller.next_delay(), 0.25))
+            if signal.sigtimedwait(stop_signals, delay) is not None:
+                break
     log("info", "Catalog Sync stopped")
     return 0
 
