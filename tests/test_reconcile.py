@@ -1,12 +1,15 @@
+import fcntl
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from threading import Event, Thread
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src/opnsense/scripts/OPNsense/UnboundCatalog"))
 from reconcile import ReconcileError, Stub, Transaction, pack, plan
+from resolver_service import run
 from sync import Catalog, atomic_json
 from unbound import Unbound
 
@@ -89,3 +92,28 @@ class TransactionTest(unittest.TestCase):
             resolver.transition.assert_called_once_with({}, desired, recovering=True)
             self.assertEqual(transaction.current(), desired)
             self.assertFalse(transaction.journal.exists())
+
+
+class RemovalLockTest(unittest.TestCase):
+    def test_removal_waits_for_in_flight_reconciliation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "resolver"
+            directory.mkdir()
+            entered, finished = Event(), Event()
+
+            def remove():
+                entered.set()
+                run("remove")
+                finished.set()
+
+            with patch("resolver_service.STATE", directory.parent), patch("resolver_service.Transaction") as state:
+                state.return_value.current.return_value = {}
+                with (directory / "lock").open("a") as holder:
+                    fcntl.flock(holder, fcntl.LOCK_EX)
+                    worker = Thread(target=remove)
+                    worker.start()
+                    self.assertTrue(entered.wait(2))
+                    self.assertFalse(finished.wait(0.1))
+                    self.assertRaises(BlockingIOError, run, "reconcile")
+                worker.join(2)
+                self.assertTrue(finished.is_set())
