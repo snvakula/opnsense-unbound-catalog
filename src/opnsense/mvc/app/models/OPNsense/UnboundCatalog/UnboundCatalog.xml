@@ -1,6 +1,6 @@
 <model>
     <mount>//OPNsense/UnboundCatalog</mount>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <description>Unbound Catalog Sync settings</description>
     <items>
         <general>
@@ -20,6 +20,30 @@
                 <MinimumValue>1</MinimumValue>
                 <MaximumValue>300</MaximumValue>
             </axfr_timeout>
+            <max_records type="IntegerField">
+                <Default>10000</Default>
+                <Required>Y</Required>
+                <MinimumValue>3</MinimumValue>
+                <MaximumValue>100000</MaximumValue>
+            </max_records>
+            <max_bytes type="IntegerField">
+                <Default>4194304</Default>
+                <Required>Y</Required>
+                <MinimumValue>512</MinimumValue>
+                <MaximumValue>33554432</MaximumValue>
+            </max_bytes>
+            <retry_initial type="IntegerField">
+                <Default>5</Default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>300</MaximumValue>
+            </retry_initial>
+            <retry_max type="IntegerField">
+                <Default>120</Default>
+                <Required>Y</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>3600</MaximumValue>
+            </retry_max>
             <notify_enabled type="BooleanField">
                 <Default>1</Default>
                 <Required>Y</Required>

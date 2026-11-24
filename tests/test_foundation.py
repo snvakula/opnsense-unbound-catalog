@@ -5,6 +5,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import jinja2
@@ -62,6 +63,12 @@ class ServiceTemplateTest(unittest.TestCase):
 
 class WorkerTest(unittest.TestCase):
     def test_term_stops_worker_and_records_both_lifecycle_events(self):
+        with TemporaryDirectory() as directory:
+            config = Path(directory) / "settings.json"
+            config.write_text('{"general": {}, "catalogs": []}')
+            self.verify_lifecycle(config)
+
+    def verify_lifecycle(self, config):
         runner = """
 import runpy
 import sys
@@ -71,7 +78,7 @@ worker = sys.argv.pop(1)
 runpy.run_path(worker, run_name="__main__")
 """
         with subprocess.Popen(
-            [sys.executable, "-c", runner, os.fspath(WORKER)],
+            [sys.executable, "-c", runner, os.fspath(WORKER), "--config", os.fspath(config)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -79,11 +86,11 @@ runpy.run_path(worker, run_name="__main__")
             try:
                 ready, _, _ = select.select([worker.stdout], [], [], 5)
                 self.assertTrue(ready, "Worker failed to report startup")
-                self.assertIn("foundation started", worker.stdout.readline())
+                self.assertIn("Catalog Sync started", worker.stdout.readline())
                 worker.send_signal(signal.SIGTERM)
                 stdout, stderr = worker.communicate(timeout=5)
                 self.assertEqual(worker.returncode, 0, stderr)
-                self.assertIn("foundation stopped", stdout)
+                self.assertIn("Catalog Sync stopped", stdout)
             finally:
                 if worker.poll() is None:
                     worker.kill()

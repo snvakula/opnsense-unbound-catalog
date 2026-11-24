@@ -30,4 +30,13 @@ command_args="-c -f -S -T unboundcatalog -s err -P ${pidfile} -p /var/run/unboun
 command_args="${command_args} /usr/local/bin/python3.13 -I /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/worker.py"
 command_args="${command_args} --log-level ${unbound_catalog_log_level}"
 
+# shellcheck disable=SC2034
+start_precmd="unbound_catalog_prepare"
+
+unbound_catalog_prepare()
+{
+    /usr/bin/install -d -m 0755 /var/db/unboundcatalog &&
+        /usr/bin/install -d -o nobody -m 0750 /var/db/unboundcatalog/catalogs
+}
+
 run_rc_command "$1"

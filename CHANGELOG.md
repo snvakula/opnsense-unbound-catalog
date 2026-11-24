@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Added bounded IPv4 and IPv6 AXFR, RFC 9432 validation, periodic polling,
+  server failover, retry settings and persistent catalog snapshots.
+
 ## 0.1.0
 
 - Added native OPNsense MVC configuration and validation for global settings
