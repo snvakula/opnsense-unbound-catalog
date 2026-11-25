@@ -102,9 +102,10 @@ class Unbound:
                         zones[canonical(values[0])] = section
         return zones
 
-    def conflicts(self, old, new, cleanup=False):
+    def conflicts(self, old, new):
         stubs, insecure = self.runtime()
-        admin = self.admin_zones()
+        configured = self.admin_zones()
+        admin = configured.copy()
         for operation in ("list_forwards", "list_local_zones", "list_auth_zones"):
             admin.update(dict.fromkeys(names(self.control(operation)), operation))
         occupied = {zone: f"Existing Unbound {admin[zone]}" for zone in new.keys() & admin.keys()}
@@ -113,7 +114,10 @@ class Unbound:
                 zone not in old or stubs[zone] != visible_stub(old[zone])
             ):
                 occupied[zone] = "Existing unmanaged or modified Unbound stub"
-            if zone in insecure and (zone not in old or not old[zone].insecure) and (not cleanup or zone in new):
+            if zone in insecure and (
+                (zone in new and (zone not in old or not old[zone].insecure))
+                or (zone in old and old[zone].insecure and configured.get(zone) == "domain-insecure")
+            ):
                 occupied[zone] = "Existing administrator DNSSEC exception"
         return occupied
 
@@ -171,10 +175,10 @@ class Unbound:
         expected = self.render(desired)
         return all(self.present(path) == expected for path in (self.persistent, self.active))
 
-    def matches(self, desired, previous):
+    def matches(self, desired, previous, skipped=frozenset()):
         stubs, insecure = self.runtime()
         validator = self.validation_enabled()
-        for zone in desired.keys() | previous.keys():
+        for zone in (desired.keys() | previous.keys()) - skipped:
             stub = desired.get(zone)
             if stub is None:
                 if zone in stubs or (previous[zone].insecure and zone in insecure):
@@ -187,12 +191,12 @@ class Unbound:
         if self.control(*args) != "ok":
             raise ReconcileError(f"Unbound did not acknowledge {args[0]}")
 
-    def transition(self, previous, desired, recovering=False):
+    def transition(self, previous, desired, recovering=False, skipped=frozenset()):
         self.check_owner(previous, desired)
         stubs, insecure = self.runtime()
         validator = self.validation_enabled()
         touched = set()
-        for zone in sorted(previous.keys() | desired.keys()):
+        for zone in sorted((previous.keys() | desired.keys()) - skipped):
             old, new = previous.get(zone), desired.get(zone)
             live = stubs.get(zone)
             if recovering and live is not None and not any(
@@ -224,7 +228,7 @@ class Unbound:
                 else:
                     atomic_bytes(path, content, 0o644)
         self.command(self.check_binary, self.configuration)
-        if not self.matches(desired, previous):
+        if not self.matches(desired, previous, skipped=skipped):
             raise ReconcileError("Runtime and persistent Unbound state did not converge")
         for zone in sorted(touched):
             if not self.control("flush_zone", zone).startswith("ok removed "):

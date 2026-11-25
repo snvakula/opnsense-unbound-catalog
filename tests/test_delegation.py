@@ -263,6 +263,20 @@ include-toplevel: "{folder}/active/*.conf"
             self.assertIn(PARENT, resolver.runtime()[1])
             assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
 
+            previous = transaction.current()
+            blocked, healthy = "blocked." + PARENT, "healthy." + PARENT
+            resolver.modify("forward_add", blocked, "192.0.2.1")
+            desired = previous | dict.fromkeys((blocked, healthy), previous[PARENT])
+            self.assertEqual(set(transaction.apply(desired)), {blocked})
+            self.assertIn(healthy, resolver.runtime()[0])
+            self.assertNotIn(blocked, resolver.runtime()[0])
+            self.assertIn(blocked, resolver.control("list_forwards"))
+            self.assertEqual(transaction.apply(previous, disabled={healthy}), {})
+            self.assertNotIn(healthy, resolver.runtime()[0])
+            self.assertNotIn(healthy, resolver.runtime()[1])
+            assert_recursive(self, lambda name, kind: query(name, kind, "127.0.0.1", resolver_port))
+            resolver.modify("forward_remove", blocked)
+
             for address in ("::1", "127.0.0.1"):
                 family_catalogs = {name: replace(row, authorities=(address,)) for name, row in catalogs.items()}
                 poller.settings = replace(settings, catalogs=family_catalogs)

@@ -1,8 +1,13 @@
 <model>
     <mount>//OPNsense/UnboundCatalog</mount>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <description>Unbound Catalog Sync settings</description>
     <items>
+        <disabled_zones type="TextField">
+            <AllowSpaces>N</AllowSpaces>
+            <AllowNewlines>N</AllowNewlines>
+            <AllowSpecial>N</AllowSpecial>
+        </disabled_zones>
         <general>
             <enabled type="BooleanField">
                 <Default>0</Default>

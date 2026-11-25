@@ -74,12 +74,21 @@ case "${1:-}" in
         if [ "$1" != "locked-start" ]; then
             stop_service
         fi
+        policy_result=0
+        if [ "$1" = "locked-apply" ] &&
+            { [ -f /var/db/unboundcatalog/catalogs/state.json ] || [ -f /var/db/unboundcatalog/resolver/applied.json ]; }; then
+            # Withdraw zones and invalidate retired snapshots before starting a new worker.
+            /usr/local/bin/python3.13 -I \
+                /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/resolver_service.py reconcile --wait ||
+                policy_result=$?
+        fi
         if "$rc" enabled; then
             start_service
         elif [ "$1" != "locked-apply" ]; then
-            printf '%s\n' "Enable Catalog Sync and configure an enabled catalog first." >&2
+            printf '%s\n' "Enable Catalog Sync in Settings first." >&2
             exit 1
         fi
+        exit "$policy_result"
         ;;
     *)
         exit 64

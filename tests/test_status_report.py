@@ -40,3 +40,15 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(summary["listener"], ["AF_INET6"])
         resolver.runtime.side_effect = ReconcileError("connection refused")
         self.assertEqual(rows()[0]["status"], "error")
+
+
+    def test_old_conflicts_without_catalog_ownership_are_hidden(self):
+        settings = Settings({}, configured_catalogs=frozenset())
+        records = {NAME: {"members": {"key": ZONE}}}
+        outcome = {"conflicts": {ZONE: "Existing Unbound list_forwards"}}
+        resolver = Mock()
+        resolver.runtime.return_value = ({}, set())
+        self.assertEqual(report(settings, records, {}, outcome, resolver, [], True), [])
+        summary = report(settings, records, {}, outcome, resolver, [], False)
+        self.assertEqual(summary["counts"]["conflict"], 0)
+        self.assertIsNone(summary["last_error"])

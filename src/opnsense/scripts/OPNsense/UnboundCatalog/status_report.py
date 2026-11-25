@@ -2,13 +2,13 @@
 
 from collections import defaultdict
 
-from reconcile import ReconcileError, plan
+from reconcile import ReconcileError, plan, retiring
 from unbound import visible_stub
 
 
 def report(settings, records, applied, outcome, resolver, listener, include_zones):
-    desired, catalog_conflicts = plan(settings.catalogs, records, applied)
-    conflicts = outcome.get("conflicts", {}) | catalog_conflicts
+    retired = retiring(settings, applied, records)
+    desired, catalog_conflicts = plan(settings.catalogs, records, applied, settings.disabled_zones, retired)
     resolver_error = outcome.get("error")
     pending = outcome.get("pending", False)
     stubs, insecure, validator = {}, set(), False
@@ -28,6 +28,12 @@ def report(settings, records, applied, outcome, resolver, listener, include_zone
             for zone in record.get("members", {}).values():
                 proposed_owners[zone].add(name)
 
+    # Old diagnostics can outlive the catalog that produced them.
+    retained = {zone for zone, stub in applied.items() if set(stub.owners) - retired}
+    related = (proposed_owners.keys() | desired.keys() | retained) - settings.disabled_zones
+    conflicts = {zone: error for zone, error in outcome.get("conflicts", {}).items() if zone in related}
+    conflicts.update(catalog_conflicts)
+
     names = settings.catalogs.keys() | {name for stub in applied.values() for name in stub.owners}
     catalogs = {}
     for name in sorted(names):
@@ -37,9 +43,10 @@ def report(settings, records, applied, outcome, resolver, listener, include_zone
             "next": record.get("next"), "serial": record.get("serial"), "error": record.get("error"),
             "zones": 0, "conflicts": 0,
         }
+    zones = applied.keys() | desired.keys() | proposed_owners.keys() | conflicts.keys()
     counts = dict.fromkeys(("managed", "active", "conflict", "pending"), 0)
     rows = []
-    for zone in sorted(applied.keys() | desired.keys() | proposed_owners.keys() | conflicts.keys()):
+    for zone in sorted(zones):
         old, new = applied.get(zone), desired.get(zone)
         expected = new or old
         owners = set(expected.owners) if expected else set()
@@ -51,6 +58,10 @@ def report(settings, records, applied, outcome, resolver, listener, include_zone
         )
         if zone in conflicts:
             state, error = "conflict", conflicts[zone]
+        elif zone in settings.disabled_zones and old is None:
+            state, error = "disabled", None
+        elif zone in settings.disabled_zones or (owners and owners <= retired):
+            state, error = ("error", resolver_error) if resolver_error else ("pending", None)
         elif not owners.intersection(settings.catalogs):
             state, error = "disabled", None
         elif resolver_error:

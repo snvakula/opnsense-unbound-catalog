@@ -9,7 +9,8 @@ two ports default to 53. List the source IP addresses or CIDRs permitted to
 send NOTIFY for this catalog. An empty list allows periodic transfers
 while dropping incoming NOTIFY for the catalog.
 
-Enable Catalog Sync under **Settings**, save, and apply. The synchronization
+Enable Catalog Sync under **Settings**, save, and apply. The service can run
+with an empty catalog list. The synchronization
 interval defaults to 300 seconds. Each AXFR attempt has a 10-second lifetime.
 Failures retry with backoff from 5 to 120 seconds by default. The default
 transfer limits are 10,000 records and 4 MiB on the wire. DNS NOTIFY defaults
@@ -24,13 +25,17 @@ glue uses RFC 1918 or other private addresses, allow its namespace with
 Unbound's native **Private Domains** setting. Keep its DNS rebinding
 protection enabled for other names.
 
-Stopping the service, disabling a catalog, or deleting its GUI entry
-retains its applied zones. To withdraw those zones while the plugin remains
-installed, keep the catalog enabled, publish a valid catalog without the
-member entries, and confirm synchronization before disabling or deleting
-the catalog. When several catalogs supply the same zone, each must withdraw
-it before the plugin removes the stub. Removing the package cleans up owned
-configuration.
+Disabling or deleting a catalog and applying the change withdraws its
+zones, including conflicts. A zone shared with another catalog keeps that
+catalog's ownership. Re-enabling a catalog requires a new successful AXFR.
+Stopping the entire service retains its applied zones. On startup, Catalog
+Sync discards saved snapshots for disabled or deleted catalogs and clears
+conflict records that no longer belong to any catalog.
+
+To exclude a particular zone across all catalogs, use **Zones → Disable zone**
+and then **Apply**. To restore it, use **Enable zone** and **Apply**. Existing
+administrator DNS entries remain in place. Conflicted zones stay visible
+with their error details while other zones are applied.
 
 ## Firewall and authoritative server access
 
@@ -99,8 +104,7 @@ policy to its members. TSIG is outside the current release scope.
 
 ## Troubleshooting
 
-- **Worker stopped.** Verify the global enable switch and at least one
-  enabled catalog with both server lists. Check the native Log File tab and
+- **Worker stopped.** Verify the global enable switch. Check the native Log File tab and
   `configctl unboundcatalog status`.
 - **Stale catalog.** Check TCP access, producer AXFR ACLs, and the configured
   catalog name. From an authorized host, run

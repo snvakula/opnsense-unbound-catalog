@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -105,6 +106,14 @@ class Settings:
     debounce: int = 2
     ipv4: bool = True
     ipv6: bool = True
+    disabled_zones: frozenset[str] = frozenset()
+    disabled_catalogs: frozenset[str] = frozenset()
+    configured_catalogs: frozenset[str] | None = None
+
+    def retired_catalogs(self, names):
+        if self.configured_catalogs is None:
+            return self.disabled_catalogs
+        return self.disabled_catalogs | (set(names) - self.configured_catalogs)
 
     @classmethod
     def read(cls, path):
@@ -113,6 +122,13 @@ class Settings:
         catalogs = {}
         if len(config["catalogs"]) > MAX_CATALOGS:
             raise ValueError("Too many configured catalogs")
+        configured, disabled = set(), set()
+        for row in config["catalogs"]:
+            if row.get("name"):
+                name = dns_name(row["name"]).to_text()
+                configured.add(name)
+                if not flag(row.get("enabled")):
+                    disabled.add(name)
         if flag(general.get("enabled")):
             for row in config["catalogs"]:
                 if not flag(row.get("enabled")):
@@ -149,6 +165,9 @@ class Settings:
             bounded_int(general.get("notify_debounce"), 2, 0, 300),
             flag(general.get("listen_ipv4"), True),
             flag(general.get("listen_ipv6"), True),
+            frozenset(dns_name(zone).to_text() for zone in (config.get("disabled_zones") or "").split(",") if zone),
+            frozenset(disabled),
+            frozenset(configured),
         )
 
 
@@ -166,7 +185,12 @@ class Poller:
                 raise ValueError("Unsupported snapshot format")
         except FileNotFoundError:
             saved = {"catalogs": {}}
-        self.state = {name: saved["catalogs"].get(name, {}) for name in settings.catalogs}
+        records = saved["catalogs"]
+        retired = settings.retired_catalogs(records)
+        if retired & records.keys():
+            records = {name: record for name, record in records.items() if name not in retired}
+            atomic_json(state_path, {"version": 1, "catalogs": records})
+        self.state = {name: records.get(name, {}) for name in settings.catalogs}
         self.due = dict.fromkeys(settings.catalogs, self.clock())
         self.failures = dict.fromkeys(settings.catalogs, 0)
         self.requests = {}
@@ -224,7 +248,8 @@ class Poller:
                 errors.append(f"{server}: {error}")
                 continue
             self.failures[name] = 0
-            current.update(members=snapshot.members, serial=snapshot.serial, succeeded=int(self.wall()), error=None)
+            current.update(members=snapshot.members, serial=snapshot.serial, succeeded=int(self.wall()),
+                           generation=uuid.uuid4().hex, error=None)
             delay = self.settings.interval
             level = "info" if previous.get("members") != snapshot.members else "debug"
             self.log(level, f"{name} synchronized serial {snapshot.serial}, {len(snapshot.members)} members")

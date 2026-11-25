@@ -37,9 +37,17 @@ untouched.
 The helper detects exact-name conflicts in resolved configuration and
 Unbound's live stub, forward, local, and authoritative zones. Parent and
 child names can coexist. Identical catalog contributions share ownership.
-Differing contributions block the pending configuration transaction and keep
-the previous state. A catalog failure retains its previous ownership and
-endpoints.
+Differing contributions block only the affected zones and keep their previous
+state. The remaining zones are reconciled together. Explicit exclusions and
+catalog withdrawal remove the plugin's ownership. An administrator runtime
+entry is preserved even when the plugin withdraws its persisted stub.
+A catalog failure retains its previous ownership and endpoints. When an
+operator disables or deletes a catalog, the resolver invalidates its
+previous snapshot. Each successful AXFR records a new generation, which
+allows a reactivated catalog to be applied again. On startup the worker
+discards retired snapshots and reconciliation replaces stale diagnostics.
+The status view derives zone membership from current snapshots and
+applied ownership.
 
 Reconciliation holds an exclusive file lock. It journals the previous and
 desired state before any change, applies runtime deltas with

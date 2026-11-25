@@ -37,22 +37,11 @@ class ServiceTemplateTest(unittest.TestCase):
     def test_fresh_install_does_not_enable_service(self):
         self.assertIn('unbound_catalog_enable="NO"', self.render())
 
-    def test_enable_switch_alone_does_not_start_service(self):
-        self.assertIn('unbound_catalog_enable="NO"', self.render(enabled="1"))
-
-    def test_complete_enabled_catalog_is_required(self):
-        catalog = {
-            "enabled": "0",
-            "name": "catalog.example.net.",
-            "transfer_servers": "192.0.2.10",
-        }
-        self.assertIn('unbound_catalog_enable="NO"', self.render("1", catalog))
-        catalog["enabled"] = "1"
-        self.assertIn('unbound_catalog_enable="NO"', self.render("1", catalog))
-        catalog["authoritative_servers"] = "2001:db8::10"
-        self.assertIn('unbound_catalog_enable="NO"', self.render("0", catalog))
-        self.assertIn('unbound_catalog_enable="YES"', self.render("1", [None, catalog]))
-        self.assertIn('unbound_catalog_enable="YES"', self.render("1", catalog))
+    def test_enable_switch_starts_service_without_an_enabled_catalog(self):
+        for catalogs in (None, [], {"enabled": "0"}):
+            with self.subTest(catalogs=catalogs):
+                self.assertIn('unbound_catalog_enable="YES"', self.render("1", catalogs))
+                self.assertIn('unbound_catalog_enable="NO"', self.render("0", catalogs))
 
     def test_template_emits_only_supported_log_levels(self):
         self.assertIn('unbound_catalog_log_level="debug"', self.render(level="debug"))

@@ -12,7 +12,7 @@ from pathlib import Path
 
 # The package script directory is owned by root.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from reconcile import ReconcileError, Transaction, plan
+from reconcile import ReconcileError, Transaction, plan, retiring
 from status_report import report
 from sync import STATE_LIMIT, Settings, atomic_json, load_json
 from unbound import Unbound
@@ -80,21 +80,41 @@ def update_outcome(path, value):
         atomic_json(path, value)
 
 
-def run(command):
+def eligible_snapshots(path, settings, records, retired, persist=False):
+    previous = optional_json(path)
+    configured = settings.configured_catalogs if settings.configured_catalogs is not None else settings.catalogs.keys()
+    invalidated = {name: generation for name, generation in previous.items() if name in configured or name in records}
+    for name in retired & records.keys():
+        invalidated[name] = records[name].get("generation")
+    eligible = {
+        name: record for name, record in records.items()
+        if name in settings.catalogs
+        and (name not in invalidated or invalidated[name] != record.get("generation"))
+    }
+    for name in eligible:
+        invalidated.pop(name, None)
+    if persist and previous != invalidated:
+        atomic_json(path, invalidated)
+    return eligible
+
+
+def run(command, wait=False):
     directory = STATE / "resolver"
     resolver = Unbound(UNBOUND, PERSISTENT, ACTIVE, TEMPLATE, directory)
     transaction = Transaction(resolver, directory, log)
     outcome = directory / "outcome.json"
+    generations = directory / "invalidated_catalogs.json"
     if command in ("summary", "zones"):
         result = optional_json(outcome)
         result["pending"] = transaction.journal.exists()
-        return report(Settings.read(SETTINGS), snapshots(), transaction.current(),
-                      result, resolver, have_listener(), include_zones=command == "zones")
+        settings, records, old = Settings.read(SETTINGS), snapshots(), transaction.current()
+        records = eligible_snapshots(generations, settings, records, retiring(settings, old, records))
+        return report(settings, records, old, result, resolver, have_listener(), include_zones=command == "zones")
 
     directory.mkdir(mode=0o750, parents=True, exist_ok=True)
     with (directory / "lock").open("a") as lock:
         # Uninstall must finish after any configd request the stopped worker left in flight.
-        flags = fcntl.LOCK_EX if command == "remove" else fcntl.LOCK_EX | fcntl.LOCK_NB
+        flags = fcntl.LOCK_EX if wait or command == "remove" else fcntl.LOCK_EX | fcntl.LOCK_NB
         fcntl.flock(lock, flags)
         conflicts = {}
         try:
@@ -102,12 +122,15 @@ def run(command):
             old = transaction.current()
             if command == "remove" and not old:
                 return
-            desired = {}
+            desired, disabled, retired = {}, frozenset(), frozenset()
             if command == "reconcile":
-                settings = Settings.read(SETTINGS)
-                desired, conflicts = plan(settings.catalogs, snapshots(), old)
-            if not conflicts:
-                conflicts = transaction.apply(desired, cleanup=command == "remove")
+                settings, records = Settings.read(SETTINGS), snapshots()
+                retired = retiring(settings, old, records)
+                records = eligible_snapshots(generations, settings, records, retired, persist=True)
+                disabled = settings.disabled_zones
+                desired, conflicts = plan(settings.catalogs, records, old, disabled, retired)
+            conflicts = transaction.apply(desired, cleanup=command == "remove", catalog_conflicts=conflicts,
+                                          disabled=disabled, retired=retired)
             if conflicts:
                 log("warning", "; ".join(f"{zone} {message}" for zone, message in conflicts.items())[:500])
                 if command == "remove":
@@ -121,10 +144,11 @@ def run(command):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("reconcile", "remove", "summary", "zones"))
+    parser.add_argument("--wait", action="store_true")
     args = parser.parse_args()
     syslog.openlog("unboundcatalog", syslog.LOG_PID, syslog.LOG_DAEMON)
     try:
-        result = run(args.command)
+        result = run(args.command, wait=args.wait)
         if result is not None:
             print(json.dumps(result))
     except BlockingIOError:
