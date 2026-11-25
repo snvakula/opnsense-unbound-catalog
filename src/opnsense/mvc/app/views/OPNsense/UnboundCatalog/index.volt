@@ -44,7 +44,8 @@
             set: settings + 'set_item/',
             add: settings + 'add_item/',
             del: settings + 'del_item/',
-            toggle: settings + 'toggle_item/'
+            toggle: settings + 'toggle_item/',
+            options: {batchToggle: false}
         }).on('loaded.rs.jquery.bootgrid', refreshOverview);
 
         const zoneLabels = $('#grid-catalog-zones').data();
