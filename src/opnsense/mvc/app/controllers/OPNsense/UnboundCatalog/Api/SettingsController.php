@@ -4,6 +4,7 @@ namespace OPNsense\UnboundCatalog\Api;
 
 use OPNsense\Base\ApiMutableModelControllerBase;
 use OPNsense\Core\Config;
+use OPNsense\UnboundCatalog\OperationalStatus;
 use OPNsense\UnboundCatalog\UnboundCatalog;
 
 class SettingsController extends ApiMutableModelControllerBase
@@ -42,11 +43,22 @@ class SettingsController extends ApiMutableModelControllerBase
             ['enabled', 'name', 'transfer_servers', 'authoritative_servers', 'description'],
             'name'
         );
+        $status = OperationalStatus::read()['catalog_status'] ?? [];
         foreach ($result['rows'] as &$row) {
-            $row['last_sync'] = '';
-            $row['managed_zones'] = 0;
-            $row['status'] = $row['enabled'] === '1' ? gettext('Configured') : gettext('Disabled');
+            $name = strtolower(rtrim($row['name'], '.')) . '.';
+            $entry = $status[$name] ?? [];
+            $row['last_sync'] = OperationalStatus::timestamp($entry['succeeded'] ?? null);
+            $row['serial'] = $entry['serial'] ?? '';
+            $row['managed_zones'] = $entry['zones'] ?? 0;
+            $row['status'] = OperationalStatus::label(match (true) {
+                $row['enabled'] !== '1' || (string)$this->getModel()->general->enabled !== '1' => 'disabled',
+                !empty($entry['conflicts']) => 'conflict',
+                !empty($entry['error']) => empty($entry['succeeded']) ? 'error' : 'stale',
+                !empty($entry['succeeded']) => 'active',
+                default => 'pending',
+            });
         }
+        unset($row);
 
         return $result;
     }

@@ -2,6 +2,8 @@ name: Validate and build
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -22,19 +24,32 @@ jobs:
         run: |
           python -m pip install 'bandit==1.9.4' 'jinja2==3.1.6' 'ruff==0.17.6' 'dnspython==2.9.2'
           sudo apt-get update
-          sudo apt-get install -y php-cli shellcheck libxml2-utils
+          sudo apt-get install -y php-cli shellcheck libxml2-utils bind9 unbound
       - name: Validate Python and run tests
         run: |
           ruff check src tests
           bandit -r src
           python -m unittest discover -s tests -v
+      - name: Verify DNS delegation with BIND and Unbound
+        run: |
+          # Use isolated binaries so the distribution service's AppArmor profile
+          # does not restrict BIND to its installed configuration directory.
+          fixture_bin="$RUNNER_TEMP/catalog-dns-bin"
+          mkdir "$fixture_bin"
+          for tool in named unbound unbound-checkconf unbound-control; do
+            install -m 0755 "$(command -v "$tool")" "$fixture_bin/$tool"
+          done
+          sudo unshare --net sh -ec '
+            ip link set lo up
+            PATH="$2:$PATH" CATALOG_DNS_INTEGRATION=1 exec "$1" -m unittest discover -s tests -p test_delegation.py -v
+          ' sh "$(command -v python)" "$fixture_bin"
       - name: Validate PHP, XML and shell files
         run: |
           find src -type f \( -name '*.php' -o -name '*.inc' \) -print0 | xargs -0 -n 1 php -l
           find src -type f -name '*.xml' -print0 | xargs -0 -n 1 xmllint --noout
           shellcheck -s sh src/etc/rc.d/unbound_catalog \
             src/opnsense/scripts/OPNsense/UnboundCatalog/service.sh \
-            +PRE_DEINSTALL.pre +POST_DEINSTALL.post
+            +PRE_DEINSTALL.pre +POST_DEINSTALL.post +POST_INSTALL.post scripts/build-package.sh
 
   package:
     needs: source
@@ -49,43 +64,36 @@ jobs:
           release: '15.1'
           arch: x86_64
           prepare: pkg install -y git
-          run: |
-            set -eu
-            build_dir=$(mktemp -d)
-            trap 'rm -rf "$build_dir"' EXIT
-            # FreeBSD ports can use a different default Python flavor.
-            # Resolve build dependencies from the signed target OPNsense repository.
-            repos="$build_dir/repos"
-            fingerprints="$build_dir/fingerprints"
-            mkdir -p "$repos" "$fingerprints/trusted" "$fingerprints/revoked"
-            core=228ab68d54513046f79bc36d7f583936922d1951
-            signer=pkg.opnsense.org.20260608
-            fetch -qo "$fingerprints/trusted/$signer" \
-              "https://raw.githubusercontent.com/opnsense/core/$core/src/etc/pkg/fingerprints/OPNsense/trusted/$signer"
-            cat > "$repos/OPNsense.conf" <<EOF
-            OPNsense: {
-              url: "https://pkg.opnsense.org/FreeBSD:15:amd64/26.7/latest",
-              signature_type: "fingerprints",
-              fingerprints: "$fingerprints",
-              enabled: yes
-            }
-            EOF
-            pkg -o REPOS_DIR="$repos" install -y -r OPNsense python313 py313-dnspython
-            git clone --depth 1 --branch 26.7.9 https://github.com/opnsense/plugins.git "$build_dir/plugins"
-            plugin="$build_dir/plugins/dns/unbound-catalog"
-            mkdir -p "$plugin" dist
-            cp -R Makefile pkg-descr src +PRE_DEINSTALL.pre +POST_DEINSTALL.post "$plugin/"
-            chmod -R a+rX "$plugin/src"
-            make -C "$plugin" PLUGIN_ABI=26.7 PLUGIN_PHP=85 \
-              PLUGIN_HASH="$(git rev-parse --short=9 HEAD)" package
-            cp "$plugin"/work/pkg/os-unbound-catalog-*.pkg dist/
-            cd dist
-            for package in os-unbound-catalog-*.pkg; do
-              pkg info -F "$package"
-              sha256 "$package" > "$package.sha256"
-            done
+          run: sh scripts/build-package.sh --fetch-deps
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: os-unbound-catalog-FreeBSD-15-amd64
           path: dist/
           if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: os-unbound-catalog-FreeBSD-15-amd64
+          path: dist/
+      - name: Publish the verified native package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          version=$(awk '$1 == "PLUGIN_VERSION=" { print $2 }' Makefile)
+          test "$GITHUB_REF_NAME" = "v$version"
+          package="os-unbound-catalog-$version.pkg"
+          (cd dist && sha256sum -c "$package.sha256")
+          gh release create "$GITHUB_REF_NAME" "dist/$package" "dist/$package.sha256" \
+            --verify-tag --generate-notes

@@ -9,22 +9,7 @@ class UnboundCatalog extends BaseModel
 {
     public function isEnabled(): bool
     {
-        if ((string)$this->general->enabled !== '1') {
-            return false;
-        }
-
-        foreach ($this->catalogs->catalog->iterateItems() as $catalog) {
-            if (
-                (string)$catalog->enabled === '1' &&
-                (string)$catalog->name !== '' &&
-                (string)$catalog->transfer_servers !== '' &&
-                (string)$catalog->authoritative_servers !== ''
-            ) {
-                return true;
-            }
-        }
-
-        return false;
+        return (string)$this->general->enabled === '1';
     }
 
     public function performValidation($validateFullModel = false)
@@ -49,9 +34,28 @@ class UnboundCatalog extends BaseModel
         }
 
         $names = [];
+        $count = 0;
         foreach ($this->catalogs->catalog->iterateItems() as $catalog) {
             $name = strtolower(rtrim((string)$catalog->name, '.'));
             $names[$name][] = $catalog->name;
+            $count++;
+            $addressFields = [
+                'transfer_servers' => [16, gettext('Use at most 16 transfer server addresses.')],
+                'authoritative_servers' => [16, gettext('Use at most 16 authoritative server addresses.')],
+                'notify_sources' => [64, gettext('Use at most 64 NOTIFY source addresses or networks.')],
+            ];
+            foreach ($addressFields as $field => [$limit, $message]) {
+                $value = (string)$catalog->$field;
+                if ($value !== '' && count(explode(',', $value)) > $limit) {
+                    $messages->appendMessage(new Message($message, $catalog->$field->__reference));
+                }
+            }
+        }
+        if ($count > 64) {
+            $messages->appendMessage(new Message(
+                gettext('Configure at most 64 catalogs.'),
+                'catalogs.catalog'
+            ));
         }
 
         foreach ($names as $name => $fields) {

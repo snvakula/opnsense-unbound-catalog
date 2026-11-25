@@ -7,17 +7,36 @@
 
         function refreshOverview() {
             ajaxGet(service + 'overview', {}, function (data, status) {
-                if (status !== 'success') {
-                    $('#catalog-service-status').text(statusLabels.unknown);
-                    $('#catalog-uptime, #catalog-count, #catalog-enabled-count').text('—');
-                    return;
+                const running = status === 'success' && data.status === 'running';
+                const values = status === 'success' ? data : {};
+                $('#catalog-service-status').text(statusLabels[values.status] || statusLabels.unknown);
+                $('#catalog-sync').prop('disabled', !running);
+                $('#catalog-uptime').text(values.uptime || '—');
+                $('#catalog-count').text(values.catalogs ?? '—');
+                $('#catalog-enabled-count').text(values.enabled_catalogs ?? '—');
+                for (const key of ['managed', 'active', 'conflict', 'pending']) {
+                    $('#catalog-' + key).text(values.counts?.[key] ?? '—');
                 }
-                $('#catalog-service-status').text(statusLabels[data.status] || statusLabels.unknown);
-                $('#catalog-uptime').text(data.uptime || '—');
-                $('#catalog-count').text(data.catalogs ?? '—');
-                $('#catalog-enabled-count').text(data.enabled_catalogs ?? '—');
+                for (const key of ['attempted', 'succeeded', 'next']) {
+                    $('#catalog-' + key).text(values[key] || '—');
+                }
+                const listener = $('#catalog-listener');
+                const families = (values.listener || []).map((family) => ({AF_INET: 'IPv4', AF_INET6: 'IPv6'}[family]));
+                if (families.length) {
+                    const label = families.length < values.notify_families ? listener.data('partial') + ' · ' : '';
+                    listener.text(label + families.join(', ') + ' · UDP ' + values.notify_port);
+                } else {
+                    const state = values.notify_enabled === undefined ? 'unknown' :
+                        values.notify_enabled ? (running ? 'unavailable' : 'stopped') : 'disabled';
+                    listener.text(listener.data(state));
+                }
+                const configuration = $('#catalog-configuration');
+                configuration.text(configuration.data(values.configuration || 'unknown') || configuration.data('unknown'));
+                $('#catalog-error').text(values.last_error || '—');
             });
         }
+
+        $('#catalog-sync').SimpleActionButton({onAction: refreshOverview});
 
         $('#grid-catalogs').UIBootgrid({
             search: settings + 'search',
@@ -28,9 +47,37 @@
             options: {selection: false, multiSelect: false}
         }).on('loaded.rs.jquery.bootgrid', refreshOverview);
 
-        $('#grid-catalog-zones').UIBootgrid({
+        const zoneLabels = $('#grid-catalog-zones').data();
+        const zones = $('#grid-catalog-zones').UIBootgrid({
             search: api + 'zones/search',
-            options: {selection: false, multiSelect: false}
+            options: {
+                selection: false,
+                multiSelect: false,
+                formatters: {
+                    zoneControl: function (column, row) {
+                        return $('<button type="button" class="btn btn-xs btn-default zone-control">')
+                            .attr('data-zone', row.zone)
+                            .attr('data-enabled', row.disabled_by_user ? '1' : '0')
+                            .text(row.disabled_by_user ? zoneLabels.enable : zoneLabels.disable)[0].outerHTML;
+                    }
+                }
+            }
+        }).on('click', '.zone-control', function () {
+            const button = $(this);
+            button.prop('disabled', true);
+            ajaxCall(api + 'zones/set_enabled', {
+                zone: button.attr('data-zone'),
+                enabled: button.attr('data-enabled')
+            }, function (data, status) {
+                button.prop('disabled', false);
+                if (status === 'success' && data.result === 'saved') {
+                    $('#catalog-change-message').show();
+                    zones.bootgrid('reload');
+                } else {
+                    const message = $('<span>').text(data?.message || zoneLabels.failure);
+                    BootstrapDialog.show({type: BootstrapDialog.TYPE_WARNING, message});
+                }
+            });
         });
 
         mapDataToFormUI({frm_catalog_settings: settings + 'get'}).done(function (forms) {
@@ -52,11 +99,19 @@
             onAction: function (data, status) {
                 if (status === 'success' && data.status === 'ok') {
                     $('#catalog-change-message').hide();
+                    zones.bootgrid('reload');
                 }
                 refreshOverview();
             }
         });
 
+        $('a[href="#catalog-overview"]').on('shown.bs.tab', refreshOverview);
+        $('a[href="#catalog-zones"]').on('shown.bs.tab', function () {
+            $('#grid-catalog-zones').bootgrid('reload');
+        });
+        $('a[href="#catalog-list"]').on('shown.bs.tab', function () {
+            $('#grid-catalogs').bootgrid('reload');
+        });
         updateServiceControlUI('unboundcatalog');
         refreshOverview();
         window.setInterval(function () {
@@ -90,14 +145,42 @@
             <tr><th scope="row">{{ lang._('Service uptime') }}</th><td id="catalog-uptime">—</td></tr>
             <tr><th scope="row">{{ lang._('Configured catalogs') }}</th><td id="catalog-count">—</td></tr>
             <tr><th scope="row">{{ lang._('Enabled catalogs') }}</th><td id="catalog-enabled-count">—</td></tr>
-            <tr><th scope="row">{{ lang._('Catalog synchronization') }}</th><td>{{ lang._('Unavailable in version 0.1.0') }}</td></tr>
-            <tr><th scope="row">{{ lang._('DNS NOTIFY listener') }}</th><td>{{ lang._('Unavailable in version 0.1.0') }}</td></tr>
+            <tr><th scope="row">{{ lang._('Managed zones') }}</th><td id="catalog-managed">—</td></tr>
+            <tr><th scope="row">{{ lang._('Active zones') }}</th><td id="catalog-active">—</td></tr>
+            <tr><th scope="row">{{ lang._('Conflicting zones') }}</th><td id="catalog-conflict">—</td></tr>
+            <tr><th scope="row">{{ lang._('Pending or failed zones') }}</th><td id="catalog-pending">—</td></tr>
+            <tr><th scope="row">{{ lang._('Last synchronization attempt') }}</th><td id="catalog-attempted">—</td></tr>
+            <tr><th scope="row">{{ lang._('Last successful synchronization') }}</th><td id="catalog-succeeded">—</td></tr>
+            <tr><th scope="row">{{ lang._('Next scheduled synchronization') }}</th><td id="catalog-next">—</td></tr>
+            <tr>
+                <th scope="row">{{ lang._('DNS NOTIFY listener') }}</th>
+                <td id="catalog-listener"
+                    data-stopped="{{ lang._('Stopped') }}"
+                    data-partial="{{ lang._('Partially available') }}"
+                    data-unavailable="{{ lang._('Unavailable') }}"
+                    data-disabled="{{ lang._('Disabled') }}"
+                    data-unknown="{{ lang._('Unknown') }}">—</td>
+            </tr>
+            <tr>
+                <th scope="row">{{ lang._('Unbound configuration') }}</th>
+                <td id="catalog-configuration"
+                    data-synced="{{ lang._('Synchronized') }}"
+                    data-pending="{{ lang._('Pending') }}"
+                    data-conflict="{{ lang._('Conflict') }}"
+                    data-error="{{ lang._('Error') }}"
+                    data-unknown="{{ lang._('Unknown') }}">—</td>
+            </tr>
+            <tr><th scope="row">{{ lang._('Last error') }}</th><td id="catalog-error">—</td></tr>
             </tbody>
         </table>
-        <button type="button" class="btn btn-default" disabled>{{ lang._('Synchronize now') }}</button>
+        <button id="catalog-sync" type="button" class="btn btn-default" disabled
+                data-endpoint="/api/unboundcatalog/service/sync"
+                data-label="{{ lang._('Synchronize now') }}"
+                data-error-title="{{ lang._('Error synchronizing catalogs') }}"></button>
     </div>
 
     <div id="catalog-list" class="tab-pane fade">
+        <p>{{ lang._('Apply after disabling or deleting a catalog to withdraw its zones from Unbound.') }}</p>
         <table id="grid-catalogs" class="table table-condensed table-hover table-striped table-responsive"
                data-editDialog="DialogCatalog" data-editAlert="catalog-change-message">
             <thead>
@@ -108,6 +191,7 @@
                 <th data-column-id="transfer_servers">{{ lang._('Transfer servers') }}</th>
                 <th data-column-id="authoritative_servers">{{ lang._('Authoritative servers') }}</th>
                 <th data-column-id="last_sync" data-sortable="false">{{ lang._('Last synchronization') }}</th>
+                <th data-column-id="serial" data-visible="false" data-sortable="false">{{ lang._('SOA serial') }}</th>
                 <th data-column-id="managed_zones" data-sortable="false">{{ lang._('Managed zones') }}</th>
                 <th data-column-id="status" data-sortable="false">{{ lang._('Status') }}</th>
                 <th data-column-id="description">{{ lang._('Description') }}</th>
@@ -123,8 +207,10 @@
     </div>
 
     <div id="catalog-zones" class="tab-pane fade">
-        <p class="alert alert-info">{{ lang._('Zone discovery and runtime reconciliation are unavailable in version 0.1.0.') }}</p>
-        <table id="grid-catalog-zones" class="table table-condensed table-hover table-striped table-responsive">
+        <table id="grid-catalog-zones" class="table table-condensed table-hover table-striped table-responsive"
+               data-enable="{{ lang._('Enable zone') }}"
+               data-disable="{{ lang._('Disable zone') }}"
+               data-failure="{{ lang._('Could not save the zone setting.') }}">
             <thead>
             <tr>
                 <th data-column-id="zone" data-identifier="true">{{ lang._('Zone name') }}</th>
@@ -132,9 +218,12 @@
                 <th data-column-id="authoritative_servers">{{ lang._('Authoritative servers') }}</th>
                 <th data-column-id="type">{{ lang._('Zone type') }}</th>
                 <th data-column-id="dnssec">{{ lang._('DNSSEC policy') }}</th>
+                <th data-column-id="runtime_servers">{{ lang._('Runtime addresses') }}</th>
+                <th data-column-id="runtime_dnssec" data-visible="false">{{ lang._('Runtime DNSSEC policy') }}</th>
                 <th data-column-id="status">{{ lang._('Runtime status') }}</th>
                 <th data-column-id="last_change">{{ lang._('Last change') }}</th>
                 <th data-column-id="error">{{ lang._('Error or conflict details') }}</th>
+                <th data-column-id="zone_control" data-formatter="zoneControl" data-sortable="false">{{ lang._('Actions') }}</th>
             </tr>
             </thead>
             <tbody></tbody>
@@ -142,7 +231,6 @@
     </div>
 
     <div id="catalog-settings" class="tab-pane fade">
-        <p class="alert alert-info">{{ lang._('Version 0.1.0 uses the enable switch and log level. DNS settings are saved for later milestones.') }}</p>
         {{ partial('layout_partials/base_form', ['fields': formSettings, 'id': 'frm_catalog_settings']) }}
         <button id="catalog-save" type="button" class="btn btn-default" disabled>{{ lang._('Save') }}</button>
     </div>

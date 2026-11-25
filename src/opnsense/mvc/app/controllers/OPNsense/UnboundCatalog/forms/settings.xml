@@ -3,7 +3,7 @@
         <id>catalogsync.general.enabled</id>
         <label>Enable Catalog Sync</label>
         <type>checkbox</type>
-        <help>Start the service after Apply when there is an enabled catalog.</help>
+        <help>Start the service after Apply, even when no catalogs are configured.</help>
     </field>
     <field>
         <id>catalogsync.general.sync_interval</id>
