@@ -83,6 +83,11 @@ class SettingsController extends ApiMutableModelControllerBase
         return $this->setBase('catalog', 'catalogs.catalog', $uuid);
     }
 
+    public function toggleItemAction($uuid, $enabled = null)
+    {
+        return $this->toggleBase('catalogs.catalog', $uuid, $enabled);
+    }
+
     public function delItemAction($uuid)
     {
         return $this->delBase('catalogs.catalog', $uuid);

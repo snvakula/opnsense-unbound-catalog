@@ -4,4 +4,7 @@
 if [ -f /conf/config.xml ] &&
     /usr/local/etc/rc.d/unbound_catalog enabled; then
     /usr/local/opnsense/scripts/OPNsense/UnboundCatalog/service.sh restart || exit 1
+elif [ -f /var/db/unboundcatalog/resolver/applied.json ] &&
+    [ -s /var/run/unbound.pid ]; then
+    /usr/local/sbin/configctl unboundcatalog restore
 fi

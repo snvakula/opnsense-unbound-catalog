@@ -20,7 +20,7 @@ from unbound import Unbound
 STATE = Path("/var/db/unboundcatalog")
 SETTINGS = Path("/var/run/unboundcatalog/settings.json")
 UNBOUND = Path("/var/unbound/unbound.conf")
-PERSISTENT = Path("/usr/local/etc/unbound.opnsense.d/catalog.conf")
+LEGACY = Path("/usr/local/etc/unbound.opnsense.d/catalog.conf")
 ACTIVE = Path("/var/unbound/etc/catalog.conf")
 TEMPLATE = Path("/usr/local/opnsense/service/templates/OPNsense/UnboundCatalog/stub-zones.j2")
 
@@ -100,7 +100,7 @@ def eligible_snapshots(path, settings, records, retired, persist=False):
 
 def run(command, wait=False):
     directory = STATE / "resolver"
-    resolver = Unbound(UNBOUND, PERSISTENT, ACTIVE, TEMPLATE, directory)
+    resolver = Unbound(UNBOUND, directory / "catalog.conf", ACTIVE, TEMPLATE, directory, legacy=LEGACY)
     transaction = Transaction(resolver, directory, log)
     outcome = directory / "outcome.json"
     generations = directory / "invalidated_catalogs.json"
@@ -110,6 +110,9 @@ def run(command, wait=False):
         settings, records, old = Settings.read(SETTINGS), snapshots(), transaction.current()
         records = eligible_snapshots(generations, settings, records, retiring(settings, old, records))
         return report(settings, records, old, result, resolver, have_listener(), include_zones=command == "zones")
+
+    if command == "restore" and not (transaction.applied.exists() or transaction.journal.exists()):
+        return
 
     directory.mkdir(mode=0o750, parents=True, exist_ok=True)
     with (directory / "lock").open("a") as lock:
@@ -123,8 +126,12 @@ def run(command, wait=False):
             if command == "remove" and not old:
                 return
             desired, disabled, retired = {}, frozenset(), frozenset()
-            if command == "reconcile":
-                settings, records = Settings.read(SETTINGS), snapshots()
+            if command in ("reconcile", "restore"):
+                settings = Settings.read(SETTINGS)
+                if command == "restore" and settings.enabled:
+                    transaction.apply(old)
+                    return
+                records = snapshots()
                 retired = retiring(settings, old, records)
                 records = eligible_snapshots(generations, settings, records, retired, persist=True)
                 disabled = settings.disabled_zones
@@ -143,7 +150,7 @@ def run(command, wait=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("reconcile", "remove", "summary", "zones"))
+    parser.add_argument("command", choices=("reconcile", "remove", "restore", "summary", "zones"))
     parser.add_argument("--wait", action="store_true")
     args = parser.parse_args()
     syslog.openlog("unboundcatalog", syslog.LOG_PID, syslog.LOG_DAEMON)

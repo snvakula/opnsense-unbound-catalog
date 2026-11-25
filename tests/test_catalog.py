@@ -98,10 +98,19 @@ class PollerTest(unittest.TestCase):
             status = make_poller().state[ZONE]
             self.assertEqual(status["members"], {"a": "member.example."})
             self.assertEqual(status["serial"], 100)
-            self.assertEqual(poller.next_delay(), 5)
+            self.assertEqual(poller.next_delay(), 300)
             now = 405
+            self.assertFalse(poller.run_due())
+            now = 700
             poller.run_due()
             self.assertEqual(load_json(path)["catalogs"][ZONE]["members"], {})
+
+    def test_existing_short_intervals_are_raised_to_five_minutes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text('{"general":{"sync_interval":"30","retry_initial":"5","retry_max":"120"},"catalogs":[]}')
+            settings = Settings.read(path)
+            self.assertEqual((settings.interval, settings.retry_initial, settings.retry_max), (300, 300, 300))
 
     def test_debounce_keeps_first_deadline(self):
         catalog = Catalog(ZONE, ("192.0.2.1",), 53, ("192.0.2.2",), 53, False)

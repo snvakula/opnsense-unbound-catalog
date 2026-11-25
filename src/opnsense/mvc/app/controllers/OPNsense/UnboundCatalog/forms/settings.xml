@@ -3,13 +3,13 @@
         <id>catalogsync.general.enabled</id>
         <label>Enable Catalog Sync</label>
         <type>checkbox</type>
-        <help>Start the service after Apply, even when no catalogs are configured.</help>
+        <help>Start the service after Apply even with no catalogs. Turning this off removes all plugin-managed zones after Apply.</help>
     </field>
     <field>
         <id>catalogsync.general.sync_interval</id>
         <label>Synchronization interval</label>
         <type>text</type>
-        <help>Time between full catalog reconciliations in seconds.</help>
+        <help>Time between scheduled AXFR attempts after success, in seconds. The default and minimum are 300 seconds.</help>
     </field>
     <field>
         <id>catalogsync.general.axfr_timeout</id>
@@ -33,6 +33,7 @@
         <id>catalogsync.general.retry_initial</id>
         <label>Initial retry delay (seconds)</label>
         <type>text</type>
+        <help>Delay after a failed AXFR. The minimum is 300 seconds.</help>
         <advanced>true</advanced>
     </field>
     <field>

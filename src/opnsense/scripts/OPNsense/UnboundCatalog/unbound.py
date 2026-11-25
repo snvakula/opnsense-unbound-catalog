@@ -34,10 +34,11 @@ def names(output):
 
 
 class Unbound:
-    def __init__(self, configuration, persistent, active, template, work, control=CONTROL, check=CHECK):
+    def __init__(self, configuration, persistent, active, template, work, control=CONTROL, check=CHECK, legacy=None):
         self.configuration = configuration
         self.persistent = persistent
         self.active = active
+        self.legacy = legacy
         self.template = template
         self.work = work
         self.control_binary = control
@@ -73,11 +74,20 @@ class Unbound:
             stubs[canonical(parts[0])] = (addresses, parts[3] == "noprime")
         return stubs, names(self.control("list_insecure"))
 
-    def admin_zones(self):
+    def owned_legacy(self, *states):
+        if self.legacy is None or self.legacy.is_symlink():
+            return False
+        content = self.present(self.legacy)
+        return content is not None and any(content == self.render(zones) for zones in states)
+
+    def admin_zones(self, old=None):
         zones = {}
         seen = set()
-        queue = [self.configuration, *sorted(self.persistent.parent.glob("*.conf"))]
+        custom = self.legacy.parent if self.legacy is not None else self.persistent.parent
+        queue = [self.configuration, *sorted(custom.glob("*.conf"))]
         ignored = {self.persistent, self.active}
+        if old and self.owned_legacy(old):
+            ignored.add(self.legacy)
         while queue:
             path = queue.pop()
             if path in ignored or path.resolve() in seen:
@@ -104,7 +114,7 @@ class Unbound:
 
     def conflicts(self, old, new):
         stubs, insecure = self.runtime()
-        configured = self.admin_zones()
+        configured = self.admin_zones(old)
         admin = configured.copy()
         for operation in ("list_forwards", "list_local_zones", "list_auth_zones"):
             admin.update(dict.fromkeys(names(self.control(operation)), operation))
@@ -155,14 +165,19 @@ class Unbound:
             # OPNsense copies persistent includes over active includes on startup.
             # Validate the live and the post-start include sets independently.
             active = {path.name: path for path in self.active.parent.glob("*.conf") if path != self.active}
-            persistent = {path.name: path for path in self.persistent.parent.glob("*.conf")
-                          if path != self.persistent}
+            custom = self.legacy.parent if self.legacy is not None else self.persistent.parent
+            excluded = {self.persistent}
+            if self.owned_legacy(previous, candidate):
+                excluded.add(self.legacy)
+            persistent = {path.name: path for path in custom.glob("*.conf") if path not in excluded}
             for index, files in enumerate((active, active | persistent)):
                 includes = folder / str(index)
                 includes.mkdir()
                 for name, path in files.items():
                     (includes / name).symlink_to(path)
                 if content:
+                    if self.active.name in files:
+                        raise ReconcileError(f"Administrator file occupies {self.active.name}")
                     (includes / self.active.name).write_bytes(content)
                 proposed = folder / self.configuration.name
                 proposed.write_text(original.replace(wildcard, str(includes / "*.conf")))
@@ -173,7 +188,9 @@ class Unbound:
 
     def files_match(self, desired):
         expected = self.render(desired)
-        return all(self.present(path) == expected for path in (self.persistent, self.active))
+        return not self.owned_legacy(desired) and all(
+            self.present(path) == expected for path in (self.persistent, self.active)
+        )
 
     def matches(self, desired, previous, skipped=frozenset()):
         stubs, insecure = self.runtime()
@@ -185,7 +202,7 @@ class Unbound:
                     return False
             elif stubs.get(zone) != visible_stub(stub) or (validator and (zone in insecure) != stub.insecure):
                 return False
-        return self.files_match(desired)
+        return not self.owned_legacy(previous) and self.files_match(desired)
 
     def modify(self, *args):
         if self.control(*args) != "ok":
@@ -227,6 +244,8 @@ class Unbound:
                     path.unlink(missing_ok=True)
                 else:
                     atomic_bytes(path, content, 0o644)
+        if self.owned_legacy(previous, desired):
+            self.legacy.unlink(missing_ok=True)
         self.command(self.check_binary, self.configuration)
         if not self.matches(desired, previous, skipped=skipped):
             raise ReconcileError("Runtime and persistent Unbound state did not converge")

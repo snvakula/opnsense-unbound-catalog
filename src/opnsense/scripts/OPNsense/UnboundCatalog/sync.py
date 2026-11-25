@@ -99,8 +99,8 @@ class Settings:
     timeout: int = 10
     max_records: int = 10000
     max_bytes: int = 4 * 1024 * 1024
-    retry_initial: int = 5
-    retry_max: int = 120
+    retry_initial: int = 300
+    retry_max: int = 300
     notify_enabled: bool = True
     notify_port: int = 1053
     debounce: int = 2
@@ -109,8 +109,11 @@ class Settings:
     disabled_zones: frozenset[str] = frozenset()
     disabled_catalogs: frozenset[str] = frozenset()
     configured_catalogs: frozenset[str] | None = None
+    enabled: bool = True
 
     def retired_catalogs(self, names):
+        if not self.enabled:
+            return self.disabled_catalogs | set(names)
         if self.configured_catalogs is None:
             return self.disabled_catalogs
         return self.disabled_catalogs | (set(names) - self.configured_catalogs)
@@ -129,7 +132,8 @@ class Settings:
                 configured.add(name)
                 if not flag(row.get("enabled")):
                     disabled.add(name)
-        if flag(general.get("enabled")):
+        enabled = flag(general.get("enabled"))
+        if enabled:
             for row in config["catalogs"]:
                 if not flag(row.get("enabled")):
                     continue
@@ -151,15 +155,16 @@ class Settings:
                     flag(row.get("disable_dnssec")),
                     sources,
                 )
-        initial = bounded_int(general.get("retry_initial"), 5, 1, 300)
+        # Old appliance backups can still supply the former five-second retry.
+        initial = max(300, bounded_int(general.get("retry_initial"), 300, 1, 3600))
         return cls(
             catalogs,
-            bounded_int(general.get("sync_interval"), 300, 10, 86400),
+            max(300, bounded_int(general.get("sync_interval"), 300, 10, 86400)),
             bounded_int(general.get("axfr_timeout"), 10, 1, 300),
             bounded_int(general.get("max_records"), 10000, 3, 100000),
             bounded_int(general.get("max_bytes"), 4194304, 512, 33554432),
             initial,
-            bounded_int(general.get("retry_max"), 120, initial, 3600),
+            max(initial, bounded_int(general.get("retry_max"), 300, 1, 3600)),
             flag(general.get("notify_enabled"), True),
             bounded_int(general.get("notify_port"), 1053, 1024, 65535),
             bounded_int(general.get("notify_debounce"), 2, 0, 300),
@@ -168,6 +173,7 @@ class Settings:
             frozenset(dns_name(zone).to_text() for zone in (config.get("disabled_zones") or "").split(",") if zone),
             frozenset(disabled),
             frozenset(configured),
+            enabled,
         )
 
 

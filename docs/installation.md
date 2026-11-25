@@ -5,15 +5,16 @@
 Use OPNsense 26.7 amd64, which is based on FreeBSD 15.1. Native checks use
 OPNsense 26.7 Nano and its bundled Unbound 1.25.1. The package requires the
 target OPNsense repository's `python313`, `py313-dnspython`, and `py313-Jinja2`.
-Download the package and its SHA-256 checksum from GitHub Releases if the
-version is published. For a pre-release build, download
-`os-unbound-catalog-FreeBSD-15-amd64` from the **Artifacts** section of the
-successful GitHub Actions run for that version, then extract the two files.
-[Releases](https://github.com/snvakula/opnsense-unbound-catalog/releases) ·
-[Actions](https://github.com/snvakula/opnsense-unbound-catalog/actions)
+Download the `.pkg` and its matching `.pkg.sha256` from the release's
+**Assets**. For a development build, use the archive
+`os-unbound-catalog-FreeBSD-15-amd64` from a successful GitHub Actions run.
+[Latest release](https://github.com/snvakula/opnsense-unbound-catalog/releases/latest) ·
+[All releases](https://github.com/snvakula/opnsense-unbound-catalog/releases) ·
+[Development builds](https://github.com/snvakula/opnsense-unbound-catalog/actions)
 
 Copy both files to the firewall. Replace `FIREWALL` with its management
-address or SSH hostname.
+address or SSH hostname. The examples below use release 1.1.0. Substitute
+the version you downloaded in both commands.
 
 ```sh
 scp os-unbound-catalog-1.1.0.pkg os-unbound-catalog-1.1.0.pkg.sha256 root@FIREWALL:/tmp/
@@ -57,6 +58,9 @@ privilege to an OPNsense group. [Configuration guide](configuration.md)
    that Unbound remains operational and that the worker is running if enabled.
 
 The package refreshes native templates and starts the worker when enabled.
+Starting with 1.2.0 it moves the old generated include into the plugin's
+private state directory during reconciliation. Manually maintained Unbound
+overrides remain subject to OPNsense's warning.
 Upgrading from 0.4.0 or later requires a build that recognizes FreeBSD's
 `PKG_UPGRADE` package hook environment. If upgrading an early prerelease
 snapshot without the upgrade guard, use a maintenance window and verify
@@ -83,7 +87,7 @@ from the persistent and live directories. Verify normal queries after removal.
 ```sh
 pkg delete os-unbound-catalog &&
   /usr/local/opnsense/scripts/firmware/register.php remove os-unbound-catalog
-test ! -e /usr/local/etc/unbound.opnsense.d/catalog.conf
+test ! -e /var/db/unboundcatalog/resolver/catalog.conf
 test ! -e /var/unbound/etc/catalog.conf
 unbound-control -c /var/unbound/unbound.conf status
 ```
