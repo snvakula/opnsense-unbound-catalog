@@ -70,6 +70,7 @@
 
         const zones = $('#grid-catalog-zones').UIBootgrid({
             search: api + 'zones/search',
+            datakey: 'zone',
             options: {selection: false, multiSelect: false},
             commands: {
                 'enable-zone': {
