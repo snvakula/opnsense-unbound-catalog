@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- Move individual zone toggles to the Enabled column.
+- Identify DNS NOTIFY, periodic poll, startup, retry, and manual triggers in AXFR logs.
+
 ## 1.2.0
 
 - Use standard OPNsense table commands and icon-only zone controls.

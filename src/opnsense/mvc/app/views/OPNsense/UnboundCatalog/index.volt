@@ -50,12 +50,12 @@
 
         const zoneLabels = $('#grid-catalog-zones').data();
 
-        function setZoneEnabled(enabled, event) {
+        function setZoneEnabled(zone, enabled, event) {
             event.stopPropagation();
             const button = $(event.currentTarget);
             button.prop('disabled', true);
             ajaxCall(api + 'zones/set_enabled', {
-                zone: button.attr('data-row-id'),
+                zone,
                 enabled
             }, function (data, status) {
                 button.prop('disabled', false);
@@ -72,19 +72,27 @@
         const zones = $('#grid-catalog-zones').UIBootgrid({
             search: api + 'zones/search',
             datakey: 'zone',
-            options: {selection: false, multiSelect: false},
-            commands: {
-                'enable-zone': {
-                    classname: 'fa fa-fw fa-check-square-o',
-                    title: zoneLabels.enable,
-                    filter: (cell) => cell.getData().disabled_by_user,
-                    method: setZoneEnabled.bind(null, '1')
-                },
-                'disable-zone': {
-                    classname: 'fa fa-fw fa-square-o',
-                    title: zoneLabels.disable,
-                    filter: (cell) => !cell.getData().disabled_by_user,
-                    method: setZoneEnabled.bind(null, '0')
+            options: {
+                selection: false,
+                multiSelect: false,
+                formatters: {
+                    zoneEnabled: function (column, row, onRendered) {
+                        const enabled = row.enabled === '1';
+                        const label = enabled ? zoneLabels.disable : zoneLabels.enable;
+                        const icon = enabled ? 'fa-check-square-o' : 'fa-square-o';
+                        const button = $('<button>', {
+                            type: 'button',
+                            class: 'btn btn-xs btn-default bootgrid-tooltip',
+                            title: label,
+                            'aria-label': label
+                        }).append($('<span>', {class: 'fa fa-fw ' + icon, 'aria-hidden': 'true'}));
+                        onRendered((cell) => {
+                            $(cell.getElement()).find('button').on(
+                                'click', setZoneEnabled.bind(null, row.zone, enabled ? '0' : '1')
+                            );
+                        });
+                        return button[0].outerHTML;
+                    }
                 }
             }
         });
@@ -229,6 +237,7 @@
                data-failure="{{ lang._('Could not save the zone setting.') }}">
             <thead>
             <tr>
+                <th data-column-id="enabled" data-width="100" data-formatter="zoneEnabled">{{ lang._('Enabled') }}</th>
                 <th data-column-id="zone" data-identifier="true">{{ lang._('Zone name') }}</th>
                 <th data-column-id="catalog">{{ lang._('Catalog') }}</th>
                 <th data-column-id="authoritative_servers">{{ lang._('Authoritative servers') }}</th>
@@ -239,7 +248,6 @@
                 <th data-column-id="status">{{ lang._('Runtime status') }}</th>
                 <th data-column-id="last_change">{{ lang._('Last change') }}</th>
                 <th data-column-id="error">{{ lang._('Error or conflict details') }}</th>
-                <th data-column-id="commands" data-width="90" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
             </tr>
             </thead>
             <tbody></tbody>

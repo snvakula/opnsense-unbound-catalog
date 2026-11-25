@@ -197,7 +197,7 @@ class Poller:
             records = {name: record for name, record in records.items() if name not in retired}
             atomic_json(state_path, {"version": 1, "catalogs": records})
         self.state = {name: records.get(name, {}) for name in settings.catalogs}
-        self.due = dict.fromkeys(settings.catalogs, self.clock())
+        self.due = dict.fromkeys(settings.catalogs, (self.clock(), "pull (startup)"))
         self.failures = dict.fromkeys(settings.catalogs, 0)
         self.requests = {}
         self.request_lock = Lock()
@@ -210,40 +210,44 @@ class Poller:
                 members.setdefault(zone, []).append(catalog)
         self.member_owners = members
 
-    def request(self, name):
+    def request(self, name, source):
         with self.request_lock:
-            self.requests.setdefault(name, self.clock() + self.settings.debounce)
+            self.requests.setdefault(name, (
+                self.clock() + self.settings.debounce, f"push (DNS NOTIFY from {source})",
+            ))
 
     def _schedule_requests(self):
         with self.request_lock:
             for name, requested in self.requests.items():
-                if not self.failures[name]:
-                    self.due[name] = min(self.due[name], requested)
+                if not self.failures[name] and requested[0] < self.due[name][0]:
+                    self.due[name] = requested
             self.requests.clear()
 
     def synchronize(self):
         with self.request_lock:
             self.requests.clear()
-            self.due = dict.fromkeys(self.settings.catalogs, self.clock())
+            self.due = dict.fromkeys(self.settings.catalogs, (self.clock(), "pull (manual sync)"))
 
     def next_delay(self):
-        return max(0, min(self.due.values(), default=self.clock() + 60) - self.clock())
+        now = self.clock()
+        return max(0, min((deadline for deadline, _ in self.due.values()), default=now + 60) - now)
 
     def run_due(self):
         self._schedule_requests()
         ran = False
-        for name, due in self.due.items():
+        for name, (due, trigger) in self.due.items():
             if due <= self.clock():
-                self._poll(self.settings.catalogs[name])
+                self._poll(self.settings.catalogs[name], trigger)
                 ran = True
         return ran
 
-    def _poll(self, catalog):
+    def _poll(self, catalog, trigger):
         name = catalog.name
         previous = self.state[name]
         current = dict(previous, attempted=int(self.wall()))
         errors = []
-        self.log("debug", f"{name} synchronizing catalog")
+        context = f"{name} AXFR [{trigger}]"
+        self.log("debug", f"{context} started")
         for server in catalog.transfers:
             try:
                 snapshot = self.fetch(
@@ -257,16 +261,18 @@ class Poller:
             current.update(members=snapshot.members, serial=snapshot.serial, succeeded=int(self.wall()),
                            generation=uuid.uuid4().hex, error=None)
             delay = self.settings.interval
-            level = "info" if previous.get("members") != snapshot.members else "debug"
-            self.log(level, f"{name} synchronized serial {snapshot.serial}, {len(snapshot.members)} members")
+            next_trigger = "pull (periodic poll)"
+            self.log("info", f"{context} from {server} succeeded, serial {snapshot.serial}, "
+                     f"{len(snapshot.members)} members")
             break
         else:
             failure = min(self.failures[name] + 1, 12)
             self.failures[name] = failure
             delay = min(self.settings.retry_max, self.settings.retry_initial * 2 ** (failure - 1))
             current["error"] = " ".join(" ".join(errors).split())[:500] or "No transfer server configured"
-            self.log("warning", f"{name} {current['error']}")
-        self.due[name] = self.clock() + delay
+            next_trigger = "pull (retry)"
+            self.log("warning", f"{context} failed: {current['error']}")
+        self.due[name] = (self.clock() + delay, next_trigger)
         current["next"] = int(self.wall() + delay)
         updated = dict(self.state, **{name: current})
         atomic_json(self.path, {"version": 1, "catalogs": updated})
