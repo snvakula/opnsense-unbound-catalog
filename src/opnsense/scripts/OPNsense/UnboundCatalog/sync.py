@@ -99,8 +99,8 @@ class Settings:
     timeout: int = 10
     max_records: int = 10000
     max_bytes: int = 4 * 1024 * 1024
-    retry_initial: int = 5
-    retry_max: int = 120
+    retry_initial: int = 300
+    retry_max: int = 300
     notify_enabled: bool = True
     notify_port: int = 1053
     debounce: int = 2
@@ -151,15 +151,16 @@ class Settings:
                     flag(row.get("disable_dnssec")),
                     sources,
                 )
-        initial = bounded_int(general.get("retry_initial"), 5, 1, 300)
+        # Old appliance backups can still supply the former five-second retry.
+        initial = max(300, bounded_int(general.get("retry_initial"), 300, 1, 3600))
         return cls(
             catalogs,
-            bounded_int(general.get("sync_interval"), 300, 10, 86400),
+            max(300, bounded_int(general.get("sync_interval"), 300, 10, 86400)),
             bounded_int(general.get("axfr_timeout"), 10, 1, 300),
             bounded_int(general.get("max_records"), 10000, 3, 100000),
             bounded_int(general.get("max_bytes"), 4194304, 512, 33554432),
             initial,
-            bounded_int(general.get("retry_max"), 120, initial, 3600),
+            max(initial, bounded_int(general.get("retry_max"), 300, 1, 3600)),
             flag(general.get("notify_enabled"), True),
             bounded_int(general.get("notify_port"), 1053, 1024, 65535),
             bounded_int(general.get("notify_debounce"), 2, 0, 300),

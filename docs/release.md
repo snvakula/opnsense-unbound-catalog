@@ -88,3 +88,11 @@ If glue is private, allow the fixture namespace through
 10. Restart with a legacy conflict record and a snapshot belonging to a
     removed catalog. Confirm that startup clears both records and leaves
     the administrator forward in Unbound.
+11. Upgrade an appliance with an active catalog and the old generated
+    include. Confirm that only the plugin-owned include moves to its private
+    state directory. Check that Unbound's override notice clears, while a
+    manually added override still triggers the notice.
+12. Restart Unbound with the Catalog Sync worker stopped. Verify that the
+    native restart hook restores committed stubs. Confirm that legacy
+    five-second retry settings migrate to 300 seconds and scheduled AXFR
+    attempts also wait 300 seconds after failure.

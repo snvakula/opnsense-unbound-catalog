@@ -12,7 +12,11 @@ while dropping incoming NOTIFY for the catalog.
 Enable Catalog Sync under **Settings**, save, and apply. The service can run
 with an empty catalog list. The synchronization
 interval defaults to 300 seconds. Each AXFR attempt has a 10-second lifetime.
-Failures retry with backoff from 5 to 120 seconds by default. The default
+Successful and failed attempts both schedule their next AXFR after 300
+seconds by default. Set a longer interval or retry delay in Settings if
+needed. Upgrades raise shorter saved intervals to 300 seconds. An initial
+start, authorized catalog NOTIFY, and **Synchronize now** can initiate
+transfers outside the periodic schedule. The default
 transfer limits are 10,000 records and 4 MiB on the wire. DNS NOTIFY defaults
 to UDP 1053, a two-second debounce, and both address families. Each catalog
 supports up to 16 transfer addresses, 16 authoritative addresses and 64
@@ -32,8 +36,9 @@ Stopping the entire service retains its applied zones. On startup, Catalog
 Sync discards saved snapshots for disabled or deleted catalogs and clears
 conflict records that no longer belong to any catalog.
 
-To exclude a particular zone across all catalogs, use **Zones → Disable zone**
-and then **Apply**. To restore it, use **Enable zone** and **Apply**. Existing
+To exclude a particular zone across all catalogs, use the **Disable zone**
+icon in the Zones grid, then **Apply**. Use the **Enable zone** icon and
+**Apply** to restore it. Existing
 administrator DNS entries remain in place. Conflicted zones stay visible
 with their error details while other zones are applied.
 
@@ -115,8 +120,8 @@ policy to its members. TSIG is outside the current release scope.
   catalogs' authorities and DNSSEC policies or resolve the administrator
   entry before asking Catalog Sync to retry.
 - **Runtime pending or error.** Run `configctl unbound check`, confirm the
-  resolver is running, and compare the persistent and live `catalog.conf`
-  files without editing them. Use **Synchronize now** after resolving the error.
+  resolver is running, and compare `/var/db/unboundcatalog/resolver/catalog.conf`
+  with `/var/unbound/etc/catalog.conf` without editing them. Use **Synchronize now** after resolving the error.
 - **SERVFAIL under a delegation.** Make sure the child servers are reachable
   over UDP and TCP 53 and that their glue survives DNS rebinding filtering.
   Check the DNSSEC chain, then test both the parent referral and the answer

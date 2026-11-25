@@ -14,6 +14,7 @@ source-restricted DNS NOTIFY over IPv4 and IPv6. The Zones tab shows
 conflicts alongside active zones and lets you exclude individual zones.
 Disabling or deleting a catalog withdraws its zones on Apply.
 
+- [Download the latest release](https://github.com/snvakula/opnsense-unbound-catalog/releases/latest)
 - [Installation, upgrade, backup, and removal](docs/installation.md)
 - [Configuration, producer examples, firewall rules, and troubleshooting](docs/configuration.md)
 - [Architecture and recovery](docs/architecture.md)

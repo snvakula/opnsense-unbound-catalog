@@ -104,6 +104,39 @@ class PlanTest(unittest.TestCase):
             self.assertIn(PARENT, resolver.conflicts({}, {PARENT: stub}))
 
 
+    def test_legacy_include_migrates_only_when_it_matches_applied_state(self):
+        stub = Stub(("192.0.2.1",), True, {CATALOG: "a"})
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("active", "manual", "private"):
+                (root / name).mkdir()
+            active = root / "active/catalog.conf"
+            legacy = root / "manual/catalog.conf"
+            persistent = root / "private/catalog.conf"
+            config = root / "unbound.conf"
+            config.write_text(f"include: {active.parent}/*.conf\n")
+            resolver = Unbound(config, persistent, active, TEMPLATE, root, legacy=legacy)
+            zones = {PARENT: stub}
+            legacy.write_bytes(resolver.render(zones))
+            active.write_bytes(legacy.read_bytes())
+            resolver.runtime = Mock(return_value=({PARENT: (("192.0.2.1",), True)}, {PARENT}))
+            resolver.validation_enabled = Mock(return_value=True)
+            resolver.command = Mock()
+            self.assertNotIn(PARENT, resolver.admin_zones(zones))
+            self.assertFalse(resolver.files_match(zones))
+            resolver.validate(zones, zones)
+            resolver.transition(zones, zones)
+            self.assertFalse(legacy.exists())
+            self.assertEqual(persistent.read_bytes(), active.read_bytes())
+            self.assertTrue(resolver.files_match(zones))
+
+            manual = f'local-zone: "{CHILD}" transparent\n'
+            legacy.write_text(manual)
+            with self.assertRaisesRegex(ReconcileError, "Administrator file occupies"):
+                resolver.validate(zones, zones)
+            self.assertEqual(legacy.read_text(), manual)
+
+
 class TransactionTest(unittest.TestCase):
     def test_conflicts_do_not_block_other_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
