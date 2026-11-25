@@ -44,8 +44,8 @@ The helper detects exact-name conflicts in resolved configuration and
 Unbound's live stub, forward, local, and authoritative zones. It checks the
 Local Zone type in both configuration and `list_local_zones`. Compatible
 Local Zones can share a name with a catalog stub and keep all existing Local
-Data. Parent and
-child names can coexist. Identical catalog contributions share ownership.
+Data. Parent and child names can coexist. Identical catalog contributions
+share ownership.
 Differing contributions block only the affected zones and keep their previous
 state. The remaining zones are reconciled together. Explicit exclusions and
 catalog withdrawal remove the plugin's ownership. An administrator runtime

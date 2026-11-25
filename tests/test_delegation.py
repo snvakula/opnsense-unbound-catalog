@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 from threading import Thread
@@ -202,7 +203,7 @@ include-toplevel: "{folder}/active/*.conf"
 
             schema = Path(os.getenv("CATALOG_POWERDNS_SCHEMA", "/usr/share/doc/pdns-backend-sqlite3/schema.sqlite3.sql"))
             database = folder / "pdns.sqlite3"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.executescript(schema.read_text())
             modules = os.getenv("CATALOG_POWERDNS_MODULE_DIR")
             (folder / "pdns.conf").write_text(f"""
