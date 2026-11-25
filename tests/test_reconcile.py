@@ -63,6 +63,13 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(desired[PARENT].owners, {SECOND: "b"})
         self.assertEqual(plan({}, {}, old, disabled={PARENT}, retired=retired), ({}, {}))
 
+    def test_disabling_module_retires_all_catalog_owners(self):
+        old = {PARENT: Stub(("192.0.2.1",), True, {CATALOG: "a", SECOND: "b"})}
+        settings = Settings({}, configured_catalogs=frozenset({CATALOG, SECOND}), enabled=False)
+        retired = settings.retired_catalogs({CATALOG, SECOND})
+        self.assertEqual(retired, {CATALOG, SECOND})
+        self.assertEqual(plan({}, {}, old, retired=retired), ({}, {}))
+
     def test_worker_start_discards_removed_and_disabled_snapshots(self):
         with tempfile.TemporaryDirectory() as temporary:
             filename = Path(temporary) / "state.json"

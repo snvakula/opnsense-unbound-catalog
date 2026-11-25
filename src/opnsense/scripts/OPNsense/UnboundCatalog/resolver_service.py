@@ -123,14 +123,15 @@ def run(command, wait=False):
         try:
             transaction.recover()
             old = transaction.current()
-            if command == "restore":
-                transaction.apply(old)
-                return
             if command == "remove" and not old:
                 return
             desired, disabled, retired = {}, frozenset(), frozenset()
-            if command == "reconcile":
-                settings, records = Settings.read(SETTINGS), snapshots()
+            if command in ("reconcile", "restore"):
+                settings = Settings.read(SETTINGS)
+                if command == "restore" and settings.enabled:
+                    transaction.apply(old)
+                    return
+                records = snapshots()
                 retired = retiring(settings, old, records)
                 records = eligible_snapshots(generations, settings, records, retired, persist=True)
                 disabled = settings.disabled_zones

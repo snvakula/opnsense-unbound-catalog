@@ -49,7 +49,8 @@ catalog withdrawal remove the plugin's ownership. An administrator runtime
 entry is preserved even when the plugin withdraws its persisted stub.
 A catalog failure retains its previous ownership and endpoints. When an
 operator disables or deletes a catalog, the resolver invalidates its
-previous snapshot. Each successful AXFR records a new generation, which
+previous snapshot. Disabling the entire module retires all catalog ownership
+at once. Native Unbound restarts respect the applied module setting. Each successful AXFR records a new generation, which
 allows a reactivated catalog to be applied again. On startup the worker
 discards retired snapshots and reconciliation replaces stale diagnostics.
 The status view derives zone membership from current snapshots and

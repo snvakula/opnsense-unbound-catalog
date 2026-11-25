@@ -109,8 +109,11 @@ class Settings:
     disabled_zones: frozenset[str] = frozenset()
     disabled_catalogs: frozenset[str] = frozenset()
     configured_catalogs: frozenset[str] | None = None
+    enabled: bool = True
 
     def retired_catalogs(self, names):
+        if not self.enabled:
+            return self.disabled_catalogs | set(names)
         if self.configured_catalogs is None:
             return self.disabled_catalogs
         return self.disabled_catalogs | (set(names) - self.configured_catalogs)
@@ -129,7 +132,8 @@ class Settings:
                 configured.add(name)
                 if not flag(row.get("enabled")):
                     disabled.add(name)
-        if flag(general.get("enabled")):
+        enabled = flag(general.get("enabled"))
+        if enabled:
             for row in config["catalogs"]:
                 if not flag(row.get("enabled")):
                     continue
@@ -169,6 +173,7 @@ class Settings:
             frozenset(dns_name(zone).to_text() for zone in (config.get("disabled_zones") or "").split(",") if zone),
             frozenset(disabled),
             frozenset(configured),
+            enabled,
         )
 
 

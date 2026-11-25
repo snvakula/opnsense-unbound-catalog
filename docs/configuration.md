@@ -32,7 +32,10 @@ protection enabled for other names.
 Disabling or deleting a catalog and applying the change withdraws its
 zones, including conflicts. A zone shared with another catalog keeps that
 catalog's ownership. Re-enabling a catalog requires a new successful AXFR.
-Stopping the entire service retains its applied zones. On startup, Catalog
+Turn off **Enable Catalog Sync** and select **Apply** to withdraw all
+plugin-managed zones and their DNSSEC exceptions. Re-enabling the module
+requires a fresh AXFR. The service widget's **Stop** action pauses
+synchronization and retains its applied zones. On startup, Catalog
 Sync discards saved snapshots for disabled or deleted catalogs and clears
 conflict records that no longer belong to any catalog.
 

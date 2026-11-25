@@ -12,7 +12,8 @@ Sync**. The service starts after you enable it and apply the settings,
 even with zero catalogs. It polls enabled catalogs and accepts
 source-restricted DNS NOTIFY over IPv4 and IPv6. The Zones tab shows
 conflicts alongside active zones and lets you exclude individual zones.
-Disabling or deleting a catalog withdraws its zones on Apply.
+Disabling or deleting a catalog withdraws its zones on Apply. Turning
+off the module withdraws all zones managed by Catalog Sync.
 
 - [Download the latest release](https://github.com/snvakula/opnsense-unbound-catalog/releases/latest)
 - [Installation, upgrade, backup, and removal](docs/installation.md)

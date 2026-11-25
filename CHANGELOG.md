@@ -5,6 +5,7 @@
 - Use standard OPNsense table commands and icon-only zone controls.
 - Keep the generated persistent include outside the manual override directory.
 - Schedule automatic AXFR attempts at a minimum of five minutes.
+- Withdraw all managed zones when the module is disabled and applied.
 - Document GitHub Releases and the package upgrade path.
 
 ## 1.1.0
