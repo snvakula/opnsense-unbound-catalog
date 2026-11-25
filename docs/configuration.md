@@ -39,11 +39,10 @@ synchronization and retains its applied zones. On startup, Catalog
 Sync discards saved snapshots for disabled or deleted catalogs and clears
 conflict records that no longer belong to any catalog.
 
-To exclude a particular zone across all catalogs, use the **Disable zone**
-icon in the Zones grid, then **Apply**. Use the **Enable zone** icon and
-**Apply** to restore it. Existing
-administrator DNS entries remain in place. Conflicted zones stay visible
-with their error details while other zones are applied.
+To exclude a zone across all catalogs, clear its checkbox in the **Enabled**
+column on the **Zones** tab and select **Apply**. Check it and apply again to
+restore it. Existing administrator DNS entries remain in place. Conflicted
+zones stay visible with their error details while other zones are applied.
 
 ## Firewall and authoritative server access
 
@@ -64,6 +63,12 @@ NOTIFY is acknowledged and its ordinary TTL behavior continues. An
 authorized NOTIFY for an unknown name gets REFUSED. Unauthorized, malformed,
 rate-limited, and unsupported packets are dropped. Polling continues
 independently of NOTIFY.
+
+In **Log File**, AXFR entries marked `push` show the DNS NOTIFY sender that
+prompted the transfer. Entries marked `pull` show what prompted Catalog Sync
+to initiate it (startup, periodic poll, retry, or **Synchronize now**).
+Both use an outbound AXFR request. Successful entries also show the transfer
+server, which may differ from the NOTIFY sender.
 
 ## PowerDNS Authoritative
 

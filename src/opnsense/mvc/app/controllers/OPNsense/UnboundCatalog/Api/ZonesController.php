@@ -56,6 +56,7 @@ class ZonesController extends ApiControllerBase
         $disabled = $this->disabledZones(new UnboundCatalog());
         foreach ($rows as &$row) {
             $row['disabled_by_user'] = isset($disabled[$row['zone']]);
+            $row['enabled'] = $row['disabled_by_user'] ? '0' : '1';
             $row['type'] = gettext('Stub Zone');
             $row['status'] = OperationalStatus::label($row['status']);
             $row['dnssec'] = match ($row['dnssec']) {

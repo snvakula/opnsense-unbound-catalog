@@ -25,7 +25,7 @@ class NotifyTest(unittest.TestCase):
         poller = SimpleNamespace(
             settings=SimpleNamespace(catalogs={ZONE: config}),
             log=lambda *_: None,
-            request=self.requests.append,
+            request=lambda *request: self.requests.append(request),
             member_owners={"member.example.": [ZONE]},
         )
         self.listener = Notify(poller)
@@ -36,7 +36,7 @@ class NotifyTest(unittest.TestCase):
         self.assertEqual(response.id, request.id)
         self.assertEqual(response.opcode(), dns.opcode.NOTIFY)
         self.assertEqual(response.flags & ~0x7800, dns.flags.QR | dns.flags.AA)
-        self.assertEqual(self.requests, [ZONE])
+        self.assertEqual(self.requests, [(ZONE, ipaddress.ip_address("2001:db8::10"))])
 
     def test_member_unknown_unauthorized_and_malformed(self):
         self.assertIsNotNone(self.listener.receive(packet("member.example.").to_wire(), "192.0.2.10"))

@@ -77,6 +77,7 @@ class PollerTest(unittest.TestCase):
         config = Settings({ZONE: catalog})
         now = 100
         calls = []
+        logs = []
 
         def fetch(_name, server, *_args):
             calls.append(server)
@@ -87,7 +88,7 @@ class PollerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.json"
             def make_poller():
-                return Poller(config, path, lambda *_: None, fetch, lambda: now, lambda: now)
+                return Poller(config, path, lambda *entry: logs.append(entry), fetch, lambda: now, lambda: now)
 
             poller = make_poller()
             self.assertTrue(poller.run_due())
@@ -104,6 +105,11 @@ class PollerTest(unittest.TestCase):
             now = 700
             poller.run_due()
             self.assertEqual(load_json(path)["catalogs"][ZONE]["members"], {})
+            results = [(level, message) for level, message in logs if level != "debug"]
+            self.assertEqual([level for level, _ in results], ["info", "warning", "info"])
+            self.assertIn("[pull (startup)] from 2001:db8::1 succeeded", results[0][1])
+            self.assertIn("[pull (periodic poll)] failed:", results[1][1])
+            self.assertIn("[pull (retry)] from 2001:db8::1 succeeded", results[2][1])
 
     def test_existing_short_intervals_are_raised_to_five_minutes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -116,20 +122,37 @@ class PollerTest(unittest.TestCase):
         catalog = Catalog(ZONE, ("192.0.2.1",), 53, ("192.0.2.2",), 53, False)
         now = 100
         calls = []
+        results = []
 
         def fetch(*_args):
             calls.append(now)
             return Snapshot(1, {})
 
         with tempfile.TemporaryDirectory() as directory:
+            def log(level, message):
+                if level == "info":
+                    results.append(message)
+
             poller = Poller(Settings({ZONE: catalog}), Path(directory) / "state.json",
-                            lambda *_: None, fetch, lambda: now, lambda: now)
+                            log, fetch, lambda: now, lambda: now)
             poller.run_due()
             now = 110
-            poller.request(ZONE)
+            poller.request(ZONE, "2001:db8::10")
             now = 111
-            poller.request(ZONE)
+            poller.request(ZONE, "192.0.2.10")
             self.assertFalse(poller.run_due())
             now = 112
             self.assertTrue(poller.run_due())
-            self.assertEqual(calls, [100, 112])
+            self.assertIn("[push (DNS NOTIFY from 2001:db8::10)] from 192.0.2.1 succeeded", results[-1])
+
+            now = 113
+            poller.request(ZONE, "2001:db8::10")
+            poller.synchronize()
+            self.assertTrue(poller.run_due())
+            self.assertIn("[pull (manual sync)] from 192.0.2.1 succeeded", results[-1])
+
+            now = 413
+            poller.request(ZONE, "2001:db8::10")
+            self.assertTrue(poller.run_due())
+            self.assertIn("[pull (periodic poll)] from 192.0.2.1 succeeded", results[-1])
+            self.assertEqual(calls, [100, 112, 113, 413])

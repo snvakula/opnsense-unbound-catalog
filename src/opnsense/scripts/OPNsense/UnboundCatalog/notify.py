@@ -109,9 +109,9 @@ class Notify:
             response.set_rcode(dns.rcode.REFUSED)
         else:
             response.flags |= dns.flags.AA
-            self.log("debug", f"{zone} authorized DNS NOTIFY")
+            self.log("debug", f"{zone} authorized DNS NOTIFY from {source}")
             if catalog:
-                self.poller.request(zone)
+                self.poller.request(zone, source)
         return response.to_wire()
 
 
