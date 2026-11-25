@@ -1,5 +1,5 @@
 PLUGIN_NAME=		unbound-catalog
-PLUGIN_VERSION=		1.2.1
+PLUGIN_VERSION=		1.2.2
 PLUGIN_COMMENT=		Manage Unbound DNS Catalog Zone synchronization
 PLUGIN_DEPENDS=		python313 py313-dnspython py313-Jinja2
 PLUGIN_MAINTAINER=	snvakula@gmail.com

@@ -99,7 +99,7 @@ class PlanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             configuration = folder / "unbound.conf"
-            configuration.write_text(f'local-zone: "{PARENT}" transparent\n')
+            configuration.write_text(f'local-zone: "{PARENT}" static\n')
             resolver = Unbound(configuration, folder / "persistent/catalog.conf",
                                folder / "active/catalog.conf", TEMPLATE, folder)
             resolver.control = Mock(return_value="")
@@ -108,7 +108,68 @@ class PlanTest(unittest.TestCase):
             self.assertIn("stub-addr: 192.0.2.1\n", rendered)
             self.assertIn("stub-addr: 2001:db8::1@5354\n", rendered)
             self.assertFalse(resolver.conflicts({}, {CHILD: stub}))
-            self.assertIn(PARENT, resolver.conflicts({}, {PARENT: stub}))
+            self.assertEqual(resolver.conflicts({}, {PARENT: stub}), {PARENT: "Existing Unbound local-zone (static)"})
+
+    def test_local_zone_types_in_configuration_and_at_runtime(self):
+        stub = Stub(("192.0.2.1",), False, {CATALOG: "a"})
+        compatible = ("transparent", "typetransparent", "always_transparent", "inform", "noview")
+        blocking = (
+            "static", "redirect", "refuse", "deny", "inform_redirect", "inform_deny",
+            "always_refuse", "always_deny", "always_nxdomain", "always_nodata", "always_null",
+            "block_a", "block_aaaa", "block_a_wdata", "block_aaaa_wdata", "truncate", "future_type",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            configuration = folder / "unbound.conf"
+            resolver = Unbound(configuration, folder / "persistent/catalog.conf",
+                               folder / "active/catalog.conf", TEMPLATE, folder)
+            runtime = {}
+            resolver.control = Mock(side_effect=lambda command: runtime.get(command, ""))
+            for kind in (*compatible, "nodefault", "ipset", *blocking):
+                with self.subTest(kind=kind, source="configuration"):
+                    configuration.write_text(f'server:\n    local-zone: "{PARENT}" {kind}\n')
+                    conflicts = resolver.conflicts({}, {PARENT: stub, CHILD: stub})
+                    self.assertEqual(conflicts, {PARENT: f"Existing Unbound local-zone ({kind})"} if kind in blocking else {})
+            configuration.write_text("server:\n")
+            for kind in (*compatible, *blocking):
+                with self.subTest(kind=kind, source="runtime"):
+                    runtime["list_local_zones"] = f"\n{PARENT.upper()}\t{kind}\nlocalhost. static\n"
+                    conflicts = resolver.conflicts({}, {PARENT: stub, CHILD: stub})
+                    self.assertEqual(conflicts, {PARENT: f"Existing Unbound local-zone ({kind})"} if kind in blocking else {})
+
+    def test_compatible_local_zone_does_not_hide_other_conflicts(self):
+        stub = Stub(("192.0.2.1",), True, {CATALOG: "a"})
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            configuration = folder / "unbound.conf"
+            hosts = folder / "host_entries.conf"
+            hosts.write_text(f'local-zone: "{PARENT}" transparent\nlocal-data: "host.{PARENT} A 192.0.2.3"\n')
+            configuration.write_text(
+                f'forward-zone:\n    name: "{PARENT}"\nserver:\n    include: "{hosts}"\n'
+            )
+            resolver = Unbound(configuration, folder / "persistent/catalog.conf",
+                               folder / "active/catalog.conf", TEMPLATE, folder)
+            runtime = {"list_local_zones": f"{PARENT} transparent"}
+            resolver.control = Mock(side_effect=lambda command: runtime.get(command, ""))
+            self.assertEqual(resolver.conflicts({}, {PARENT: stub}), {PARENT: "Existing Unbound forward-zone"})
+
+            runtime["list_local_zones"] = f"{PARENT} deny"
+            configuration.write_text(f'server:\n    include: "{hosts}"\n')
+            self.assertEqual(resolver.conflicts({}, {PARENT: stub}), {PARENT: "Existing Unbound local-zone (deny)"})
+
+            runtime["list_local_zones"] = f"{PARENT} transparent"
+            configuration.write_text(
+                f'server:\n    include: "{hosts}"\n    local-zone-override: "{PARENT}" 192.0.2.0/24 refuse\n'
+            )
+            self.assertEqual(
+                resolver.conflicts({}, {PARENT: stub}), {PARENT: "Existing Unbound local-zone-override (refuse)"}
+            )
+
+            runtime["list_insecure"] = PARENT
+            configuration.write_text(f'server:\n    include: "{hosts}"\n    domain-insecure: "{PARENT}"\n')
+            self.assertEqual(
+                resolver.conflicts({PARENT: stub}, {}), {PARENT: "Existing administrator DNSSEC exception"}
+            )
 
 
     def test_legacy_include_migrates_only_when_it_matches_applied_state(self):

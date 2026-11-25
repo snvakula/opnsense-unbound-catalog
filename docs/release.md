@@ -33,6 +33,8 @@ verifies its SHA-256 checksum, and publishes both files to GitHub Releases.
 python -m pip install 'dnspython==2.9.2' 'jinja2==3.1.6'
 python -m unittest discover -s tests -v
 CATALOG_DNS_INTEGRATION=1 python -m unittest discover -s tests -p test_delegation.py -v
+CATALOG_DNS_INTEGRATION=1 CATALOG_POWERDNS_INTEGRATION=1 \
+  python -m unittest discover -s tests -p test_delegation.py -v
 ```
 
 Run the opt-in integration test on an isolated Linux runner with BIND,
@@ -45,6 +47,17 @@ It also covers IPv4 and IPv6 transfers, matching multi-catalog ownership,
 forward conflicts, DNSSEC exceptions, duplicate NOTIFY, periodic transfer,
 catalog and child-server outages, rollback, invalid, truncated and empty catalogs,
 serial rollover and Unbound restart.
+
+The PowerDNS test requires PowerDNS Authoritative with the Generic SQLite3
+backend, `pdnsutil`, and `pdns_control`. It verifies a generated producer
+catalog over AXFR, then triggers NOTIFY through PowerDNS. It checks that
+Unbound serves a Local Data record in preference to PowerDNS, resolves
+another name through the matching stub, and preserves its Local Zones,
+Local Data, and host entries when the stub is removed. Run this test with
+Unbound 1.26.2 to reproduce the OPNsense compatibility check. Set
+`CATALOG_POWERDNS_SCHEMA` if the backend schema is installed outside
+`/usr/share/doc/pdns-backend-sqlite3/schema.sqlite3.sql`. Set
+`CATALOG_POWERDNS_MODULE_DIR` if testing an unpacked PowerDNS installation.
 
 ## Native acceptance
 

@@ -44,6 +44,16 @@ column on the **Zones** tab and select **Apply**. Check it and apply again to
 restore it. Existing administrator DNS entries remain in place. Conflicted
 zones stay visible with their error details while other zones are applied.
 
+An OPNsense-generated `transparent` Local Zone can share its name with a
+catalog Stub Zone. Unbound answers locally defined names from its Local Data
+and resolves other names through the Stub Zone. `typetransparent` also
+allows upstream lookups for record types absent from Local Data.
+`always_transparent` leaves Local Data in place but bypasses it for
+queries handled by that Local Zone. `inform` behaves like
+`transparent` and logs queries. Local Zones that enforce blocking or
+redirection, such as `static`, `redirect`, `refuse`, `deny`, and
+`block_a`, still cause conflicts at the same zone name.
+
 ## Firewall and authoritative server access
 
 | Direction | Protocol | Destination | Purpose |
@@ -72,22 +82,47 @@ server, which may differ from the NOTIFY sender.
 
 ## PowerDNS Authoritative
 
-For PowerDNS 5.x, configure a catalog producer and add a member zone already
-present on the authoritative server. The producer's apex needs an SOA and
-NS RRset. The backend must support catalog generation.
+Use a catalog-capable backend such as Generic SQLite3. Enable primary
+operation with `primary=yes` in PowerDNS Authoritative so the producer can
+send NOTIFY. Create a producer with SOA and NS records at its apex, then
+assign an existing authoritative member zone to it. PowerDNS generates the
+RFC 9432 membership records when OPNsense requests AXFR.
+
+The examples use `192.0.2.10` for PowerDNS and `192.0.2.20` for OPNsense.
+Use the actual OPNsense source address for AXFR, and the actual listener
+address and port for NOTIFY.
+
+### PowerDNS 5.x
 
 ```sh
 pdnsutil zone create catalog.example.net ns1.example.net
 pdnsutil zone set-kind catalog.example.net producer
 pdnsutil zone set-kind example.net primary
 pdnsutil catalog set example.net catalog.example.net
+pdnsutil metadata set catalog.example.net ALLOW-AXFR-FROM 192.0.2.20
+pdnsutil metadata set catalog.example.net ALSO-NOTIFY 192.0.2.20:1053
 ```
 
-Allow transfer of the catalog to the firewall and configure
-`ALSO-NOTIFY` on the producer when using NOTIFY. PowerDNS versions earlier
-than 5.0 use the legacy `pdnsutil set-kind` and `pdnsutil set-catalog`
-commands. Confirm the final command syntax and supported backend for your
-version. [PowerDNS Catalog documentation](https://doc.powerdns.com/authoritative/catalog.html)
+### PowerDNS 4.8 and 4.9 CLI
+
+```sh
+pdnsutil create-zone catalog.example.net ns1.example.net
+pdnsutil set-kind catalog.example.net producer
+pdnsutil set-kind example.net primary
+pdnsutil set-catalog example.net catalog.example.net
+pdnsutil set-meta catalog.example.net ALLOW-AXFR-FROM 192.0.2.20
+pdnsutil set-meta catalog.example.net ALSO-NOTIFY 192.0.2.20:1053
+```
+
+In OPNsense, enter `catalog.example.net` as the **Catalog name**,
+`192.0.2.10` as a **Transfer server**, and an address serving the member
+zones as an **Authoritative server**. Use the PowerDNS address that actually
+sends NOTIFY in **Allowed NOTIFY sources**. After **Apply**, verify the first
+AXFR in **Log File**. Run `pdns_control notify catalog.example.net` on
+PowerDNS to verify the `push` path. Check the producer's global
+`allow-axfr-ips` setting alongside its per-zone ACL to keep transfers
+restricted. Omit `ALSO-NOTIFY` for a polling-only deployment.
+[PowerDNS Catalog documentation](https://doc.powerdns.com/authoritative/catalog.html)
 
 ## BIND and Knot DNS
 
@@ -108,8 +143,8 @@ m1.zones IN PTR example.net.
 With Knot DNS, use `catalog-role: generate` for the producer zone and
 `catalog-role: member` with `catalog-zone` pointing to the producer on
 the member zones. Restrict transfers with Knot ACLs and configure a NOTIFY
-remote to the firewall when required. PowerDNS and Knot examples describe
-producer setup. The integration suite exercises BIND. [Knot DNS catalog configuration](https://www.knot-dns.cz/docs/latest/html/configuration.html)
+remote to the firewall when required.
+[Knot DNS catalog configuration](https://www.knot-dns.cz/docs/latest/html/configuration.html)
 
 Change-of-ownership records are rejected, and unrecognized group values are
 ignored. The plugin applies the catalog's configured endpoint and DNSSEC

@@ -1,9 +1,10 @@
-"""Run the delegation acceptance test with BIND and Unbound on a private loopback lab."""
+"""Exercise BIND and PowerDNS catalogs with Unbound on a private loopback lab."""
 
 import ipaddress
 import os
 import shutil
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -144,7 +145,7 @@ def assert_recursive(test, resolve):
                          [(CHILD, dns.rdatatype.SOA, [SOA.format(zone=CHILD, serial=1)])])
 
 
-@unittest.skipUnless(os.getenv("CATALOG_DNS_INTEGRATION") == "1", "requires BIND and Unbound")
+@unittest.skipUnless(os.getenv("CATALOG_DNS_INTEGRATION") == "1", "requires a live DNS integration environment")
 class DelegationTest(unittest.TestCase):
     def process(self, folder, name, *args):
         binary = shutil.which(name)
@@ -159,6 +160,142 @@ class DelegationTest(unittest.TestCase):
         if process.poll() is None:
             process.terminate()
             process.communicate(timeout=10)
+
+    def resolver_fixture(self, folder, resolver_port):
+        for directory in ("persistent", "active"):
+            (folder / directory).mkdir()
+        configuration = folder / "unbound.conf"
+        control_socket = folder / "control.sock"
+        configuration.write_text(f'''
+server:
+    chroot: ""
+    username: ""
+    directory: "{folder}"
+    pidfile: "{folder}/unbound.pid"
+    interface: 127.0.0.1
+    port: {resolver_port}
+    do-not-query-localhost: no
+    use-syslog: no
+    module-config: "validator iterator"
+    include: "{folder}/host_entries.conf"
+remote-control:
+    control-enable: yes
+    control-interface: "{control_socket}"
+include-toplevel: "{folder}/active/*.conf"
+''')
+        (folder / "host_entries.conf").touch()
+        template = ROOT / "src/opnsense/service/templates/OPNsense/UnboundCatalog/stub-zones.j2"
+        return Unbound(configuration, folder / "persistent/catalog.conf", folder / "active/catalog.conf",
+                       template, folder, shutil.which("unbound-control"), shutil.which("unbound-checkconf"))
+
+    @unittest.skipUnless(os.getenv("CATALOG_POWERDNS_INTEGRATION") == "1", "requires PowerDNS Authoritative")
+    def test_powerdns_catalog_and_transparent_local_zone(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            authoritative_port, resolver_port, notify_port = port(), port(), port()
+            resolver = self.resolver_fixture(folder, resolver_port)
+            local, remote = "local." + PARENT, "remote." + PARENT
+            hosts = folder / "host_entries.conf"
+            hosts.write_text(f'local-zone: "{PARENT}" transparent\nlocal-data: "{local} 60 IN A 192.0.2.90"\n')
+            original_hosts = hosts.read_bytes()
+            original_configuration = resolver.configuration.read_bytes()
+
+            schema = Path(os.getenv("CATALOG_POWERDNS_SCHEMA", "/usr/share/doc/pdns-backend-sqlite3/schema.sqlite3.sql"))
+            database = folder / "pdns.sqlite3"
+            with sqlite3.connect(database) as connection:
+                connection.executescript(schema.read_text())
+            modules = os.getenv("CATALOG_POWERDNS_MODULE_DIR")
+            (folder / "pdns.conf").write_text(f"""
+launch=gsqlite3
+gsqlite3-database={database}
+local-address=127.0.0.1
+local-port={authoritative_port}
+socket-dir={folder}
+allow-axfr-ips=
+primary=yes
+""" + (f"module-dir={modules}\n" if modules else ""))
+            member = folder / "member.zone"
+            member.write_text(TTL + f"""
+@ SOA {SOA.format(zone=PARENT, serial=1)}
+@ NS ns.{PARENT}
+ns A 192.0.2.1
+{local} A 192.0.2.42
+{remote} A 192.0.2.43
+""")
+            config_dir = f"--config-dir={folder}"
+            util = shutil.which("pdnsutil")
+            self.assertIsNotNone(util, "pdnsutil is required")
+            modern = int(subprocess.check_output([util, "--version"], text=True).split()[1].split(".")[0]) >= 5
+
+            def pdnsutil(modern_command, legacy_command, *args):
+                command = modern_command.split() if modern else [legacy_command]
+                result = subprocess.run(
+                    [util, config_dir, *command, *map(str, args)], check=False, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            pdnsutil("zone create", "create-zone", CATALOG, f"ns.{PARENT}")
+            pdnsutil("zone set-kind", "set-kind", CATALOG, "producer")
+            pdnsutil("zone load", "load-zone", PARENT, member)
+            pdnsutil("zone set-kind", "set-kind", PARENT, "primary")
+            pdnsutil("catalog set", "set-catalog", PARENT, CATALOG)
+            pdnsutil("metadata set", "set-meta", CATALOG, "ALLOW-AXFR-FROM", "127.0.0.1")
+            pdnsutil("metadata set", "set-meta", CATALOG, "ALSO-NOTIFY", f"127.0.0.1:{notify_port}")
+            producer = self.process(folder, "pdns_server", config_dir, "--daemon=no")
+            wait_until(lambda: query(CATALOG, "SOA", "127.0.0.1", authoritative_port).answer, folder)
+            unbound = self.process(folder, "unbound", "-d", "-c", resolver.configuration)
+            wait_until((folder / "control.sock").exists, folder)
+
+            def addresses(name, server_port=resolver_port):
+                return [record.to_text() for rrset in query(name, "A", "127.0.0.1", server_port).answer
+                        for record in rrset]
+
+            self.assertEqual(addresses(local, authoritative_port), ["192.0.2.42"])
+            self.assertEqual(addresses(local), ["192.0.2.90"])
+            local_zones = resolver.control("list_local_zones")
+            self.assertIn(f"{PARENT} transparent", local_zones.splitlines())
+            local_data = resolver.control("list_local_data")
+            catalog = Catalog(CATALOG, ("127.0.0.1",), authoritative_port, ("127.0.0.1",), authoritative_port,
+                              True, (ipaddress.ip_network("127.0.0.1"),))
+            settings = Settings({CATALOG: catalog}, notify_port=notify_port, debounce=0, ipv6=False)
+            logs = []
+            poller = Poller(settings, folder / "state.json", lambda *entry: logs.append(entry))
+            self.assertTrue(poller.run_due(), logs)
+            self.assertEqual(set(poller.state[CATALOG]["members"].values()), {PARENT}, logs)
+            desired, conflicts = plan(settings.catalogs, poller.state, {})
+            self.assertEqual(conflicts, {})
+
+            transaction = Transaction(resolver, folder, lambda *_: None)
+            self.assertEqual(transaction.apply(desired), {})
+            self.assertIn(PARENT, resolver.runtime()[0])
+            self.assertEqual(addresses(local), ["192.0.2.90"])
+            self.assertEqual(addresses(remote), ["192.0.2.43"])
+            self.assertEqual(resolver.control("list_local_zones"), local_zones)
+            self.assertEqual(resolver.control("list_local_data"), local_data)
+
+            control = shutil.which("pdns_control")
+            self.assertIsNotNone(control, "pdns_control is required")
+            with Listener(poller):
+                subprocess.run([control, config_dir, "notify", CATALOG], check=True, capture_output=True, text=True)
+                wait_until(poller.run_due, folder)
+            self.assertTrue(any(level == "info" and "[push (DNS NOTIFY from 127.0.0.1)]" in message
+                                for level, message in logs), logs)
+
+            self.stop(unbound)
+            (folder / "control.sock").unlink(missing_ok=True)
+            unbound = self.process(folder, "unbound", "-d", "-c", resolver.configuration)
+            wait_until((folder / "control.sock").exists, folder)
+            self.assertEqual(addresses(local), ["192.0.2.90"])
+            self.assertEqual(addresses(remote), ["192.0.2.43"])
+            self.assertEqual(transaction.apply({}), {})
+            self.assertNotIn(PARENT, resolver.runtime()[0])
+            self.assertEqual(addresses(local), ["192.0.2.90"])
+            self.assertEqual(resolver.control("list_local_zones"), local_zones)
+            self.assertEqual(resolver.control("list_local_data"), local_data)
+            self.assertEqual(hosts.read_bytes(), original_hosts)
+            self.assertEqual(resolver.configuration.read_bytes(), original_configuration)
+            self.stop(unbound)
+            self.stop(producer)
 
     def test_incomplete_axfr_over_tcp(self):
         answers = []
@@ -194,8 +331,6 @@ class DelegationTest(unittest.TestCase):
     def test_transfer_stub_and_delegation(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
-            for directory in ("persistent", "active"):
-                (folder / directory).mkdir()
             fixtures(folder, CHILD_ADDRESS)
             parent_port, resolver_port = port(), port()
             child = self.process(folder, "named", "-g", "-n", "1", "-c",
@@ -207,27 +342,9 @@ class DelegationTest(unittest.TestCase):
             referral = query(CHILD, "A", "127.0.0.1", parent_port, recursive=False)
             self.assertEqual(referral.answer, [])
             self.assertEqual([(r.name.to_text(), r.rdtype) for r in referral.authority], [(CHILD, dns.rdatatype.NS)])
-            configuration = folder / "unbound.conf"
+            resolver = self.resolver_fixture(folder, resolver_port)
+            configuration = resolver.configuration
             control_socket = folder / "control.sock"
-            configuration.write_text(f'''
-server:
-    chroot: ""
-    username: ""
-    directory: "{folder}"
-    pidfile: "{folder}/unbound.pid"
-    interface: 127.0.0.1
-    port: {resolver_port}
-    do-not-query-localhost: no
-    use-syslog: no
-    module-config: "validator iterator"
-remote-control:
-    control-enable: yes
-    control-interface: "{control_socket}"
-include-toplevel: "{folder}/active/*.conf"
-''')
-            template = ROOT / "src/opnsense/service/templates/OPNsense/UnboundCatalog/stub-zones.j2"
-            resolver = Unbound(configuration, folder / "persistent/catalog.conf", folder / "active/catalog.conf",
-                               template, folder, shutil.which("unbound-control"), shutil.which("unbound-checkconf"))
             unbound = self.process(folder, "unbound", "-d", "-c", configuration)
             wait_until(control_socket.exists, folder)
             now = 1
