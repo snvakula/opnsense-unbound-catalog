@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2
+
+- Allow compatible Unbound Local Zones to coexist with catalog Stub Zones.
+- Verify generated PowerDNS catalogs, AXFR, NOTIFY, and Local Data with live DNS tests.
+
 ## 1.2.1
 
 - Move individual zone toggles to the Enabled column.

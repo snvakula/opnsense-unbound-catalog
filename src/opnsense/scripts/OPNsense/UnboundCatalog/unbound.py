@@ -16,8 +16,14 @@ from sync import atomic_bytes
 CONTROL = "/usr/local/sbin/unbound-control"
 CHECK = "/usr/local/sbin/unbound-checkconf"
 OPTIONS = (
-    "stub-zone", "forward-zone", "auth-zone", "rpz", "local-zone", "domain-insecure",
+    "stub-zone", "forward-zone", "auth-zone", "rpz",
 )
+# The first four allow recursion through a stub. The other types select
+# another view or adjust defaults without imposing a local DNS answer.
+COMPATIBLE_LOCAL_ZONE_TYPES = frozenset({
+    "transparent", "typetransparent", "always_transparent", "inform",
+    "noview", "nodefault", "ipset",
+})
 
 
 def canonical(text):
@@ -31,6 +37,13 @@ def visible_stub(stub):
 
 def names(output):
     return {canonical(line.split()[0]) for line in output.splitlines() if line.strip()}
+
+
+def local_zones(output):
+    for line in output.splitlines():
+        if line.strip():
+            name, *kind = line.rsplit(maxsplit=1)
+            yield canonical(name), kind[0] if kind else ""
 
 
 class Unbound:
@@ -106,18 +119,29 @@ class Unbound:
                         queue.extend(map(Path, sorted(glob.glob(str(pattern)))))
                     if key.rstrip(":") in OPTIONS and not values:
                         section = key.rstrip(":")
-                    elif key in ("local-zone:", "domain-insecure:") and values:
-                        zones[canonical(values[0])] = key.rstrip(":")
+                    elif key == "local-zone:" and len(values) == 2:
+                        name, kind = values
+                        if kind not in COMPATIBLE_LOCAL_ZONE_TYPES:
+                            zones.setdefault(canonical(name), set()).add(f"local-zone ({kind})")
+                    elif key == "local-zone-override:" and len(values) == 3:
+                        name, _, kind = values
+                        if kind not in COMPATIBLE_LOCAL_ZONE_TYPES:
+                            zones.setdefault(canonical(name), set()).add(f"local-zone-override ({kind})")
+                    elif key == "domain-insecure:" and values:
+                        zones.setdefault(canonical(values[0]), set()).add("domain-insecure")
                     elif key == "name:" and section in OPTIONS and values:
-                        zones[canonical(values[0])] = section
+                        zones.setdefault(canonical(values[0]), set()).add(section)
         return zones
 
     def conflicts(self, old, new):
         stubs, insecure = self.runtime()
         configured = self.admin_zones(old)
-        admin = configured.copy()
-        for operation in ("list_forwards", "list_local_zones", "list_auth_zones"):
-            admin.update(dict.fromkeys(names(self.control(operation)), operation))
+        admin = {zone: ", ".join(sorted(kinds)) for zone, kinds in configured.items()}
+        admin.update(dict.fromkeys(names(self.control("list_forwards")), "list_forwards"))
+        for zone, kind in local_zones(self.control("list_local_zones")):
+            if kind not in COMPATIBLE_LOCAL_ZONE_TYPES:
+                admin[zone] = f"local-zone ({kind or 'unknown type'})"
+        admin.update(dict.fromkeys(names(self.control("list_auth_zones")), "list_auth_zones"))
         occupied = {zone: f"Existing Unbound {admin[zone]}" for zone in new.keys() & admin.keys()}
         for zone in old.keys() | new.keys():
             if zone in stubs and (
@@ -126,7 +150,7 @@ class Unbound:
                 occupied[zone] = "Existing unmanaged or modified Unbound stub"
             if zone in insecure and (
                 (zone in new and (zone not in old or not old[zone].insecure))
-                or (zone in old and old[zone].insecure and configured.get(zone) == "domain-insecure")
+                or (zone in old and old[zone].insecure and "domain-insecure" in configured.get(zone, ()))
             ):
                 occupied[zone] = "Existing administrator DNSSEC exception"
         return occupied

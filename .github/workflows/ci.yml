@@ -24,13 +24,15 @@ jobs:
         run: |
           python -m pip install 'bandit==1.9.4' 'jinja2==3.1.6' 'ruff==0.17.6' 'dnspython==2.9.2'
           sudo apt-get update
-          sudo apt-get install -y php-cli shellcheck libxml2-utils bind9 unbound
+          # The integration tests launch their own PowerDNS process.
+          sudo systemctl mask pdns.service
+          sudo apt-get install -y php-cli shellcheck libxml2-utils bind9 unbound pdns-server pdns-backend-sqlite3
       - name: Validate Python and run tests
         run: |
           ruff check src tests
           bandit -r src
           python -m unittest discover -s tests -v
-      - name: Verify DNS delegation with BIND and Unbound
+      - name: Verify DNS delegation with BIND, PowerDNS and Unbound
         run: |
           # Use isolated binaries so the distribution service's AppArmor profile
           # does not restrict BIND to its installed configuration directory.
@@ -41,7 +43,8 @@ jobs:
           done
           sudo unshare --net sh -ec '
             ip link set lo up
-            PATH="$2:$PATH" CATALOG_DNS_INTEGRATION=1 exec "$1" -m unittest discover -s tests -p test_delegation.py -v
+            export CATALOG_DNS_INTEGRATION=1 CATALOG_POWERDNS_INTEGRATION=1
+            PATH="$2:$PATH" exec "$1" -m unittest discover -s tests -p test_delegation.py -v
           ' sh "$(command -v python)" "$fixture_bin"
       - name: Validate PHP, XML and shell files
         run: |
